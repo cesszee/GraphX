@@ -1,9 +1,7 @@
 ; ============================================================
-; GraphX - Step 19
+; GraphX 
 ; 32-bit MASM + Win32 + OpenGL
 ;
-; NEW:
-;   Adaptive Cartesian grid spacing
 ;
 ; Existing:
 ;   Runtime expression input
@@ -363,7 +361,7 @@ editClassName db "EDIT",0
 staticClassName db "STATIC",0
 
 windowTitle db \
-    "GraphX - Adaptive Cartesian Grid",0
+    "GraphX",0
 
 
 expressionText db "x^2",0,252 DUP(0)
