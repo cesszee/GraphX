@@ -1,18 +1,19 @@
 ; ============================================================
-; GraphX - Step 10
+; GraphX - Step 11
 ; 32-bit MASM + Win32 + OpenGL
 ;
 ; Features:
-;   - Win32 application window
-;   - OpenGL rendering context
+;   - Native Win32 application
+;   - OpenGL rendering
 ;   - Cartesian grid
 ;   - X/Y axes
-;   - y = x^2
-;   - Aspect-ratio-correct viewport
-;   - Keyboard pan
-;   - Keyboard zoom
-;   - Reset view
-;   - ESC to exit
+;   - Aspect-ratio-correct mathematical viewport
+;   - Pan with W/A/S/D
+;   - Zoom with +/-
+;   - Reset with R
+;   - Exit with ESC
+;   - Dynamic graph sampling across visible X range
+;   - Function y = x^2 calculated using x87 FPU
 ;
 ; Assemble:
 ;   ml /nologo /c /coff main.asm
@@ -29,7 +30,7 @@ option casemap:none
 
 
 ; ============================================================
-; WIN32 API
+; WIN32 API PROTOTYPES
 ; ============================================================
 
 GetModuleHandleA PROTO STDCALL :DWORD
@@ -62,10 +63,13 @@ PostQuitMessage PROTO STDCALL :DWORD
 ValidateRect  PROTO STDCALL :DWORD, :DWORD
 GetClientRect PROTO STDCALL :DWORD, :DWORD
 
-GetDC     PROTO STDCALL :DWORD
-ReleaseDC PROTO STDCALL :DWORD, :DWORD
+GetDC PROTO STDCALL :DWORD
 
-ChoosePixelFormat PROTO STDCALL :DWORD, :DWORD
+ReleaseDC PROTO STDCALL \
+    :DWORD, :DWORD
+
+ChoosePixelFormat PROTO STDCALL \
+    :DWORD, :DWORD
 
 SetPixelFormat PROTO STDCALL \
     :DWORD, :DWORD, :DWORD
@@ -74,7 +78,7 @@ SwapBuffers PROTO STDCALL :DWORD
 
 
 ; ============================================================
-; WGL API
+; WGL PROTOTYPES
 ; ============================================================
 
 wglCreateContext PROTO STDCALL :DWORD
@@ -86,7 +90,7 @@ wglDeleteContext PROTO STDCALL :DWORD
 
 
 ; ============================================================
-; OPENGL API
+; OPENGL PROTOTYPES
 ; ============================================================
 
 glClearColor PROTO STDCALL \
@@ -98,6 +102,7 @@ glViewport PROTO STDCALL \
     :DWORD, :DWORD, :DWORD, :DWORD
 
 glMatrixMode PROTO STDCALL :DWORD
+
 glLoadIdentity PROTO STDCALL
 
 glScalef PROTO STDCALL \
@@ -145,13 +150,13 @@ IDC_ARROW EQU 32512
 ; KEYBOARD CONSTANTS
 ; ============================================================
 
-VK_ESCAPE   EQU 01Bh
+VK_ESCAPE EQU 01Bh
 
-VK_A        EQU 041h
-VK_D        EQU 044h
-VK_R        EQU 052h
-VK_S        EQU 053h
-VK_W        EQU 057h
+VK_A EQU 041h
+VK_D EQU 044h
+VK_R EQU 052h
+VK_S EQU 053h
+VK_W EQU 057h
 
 VK_ADD      EQU 06Bh
 VK_SUBTRACT EQU 06Dh
@@ -189,7 +194,9 @@ GL_PROJECTION EQU 1701h
 ; GRAPHX CONSTANTS
 ; ============================================================
 
-GRAPH_SAMPLES EQU 121
+; 1000 intervals means 1001 plotted points.
+GRAPH_INTERVALS    EQU 1000
+GRAPH_SAMPLE_COUNT EQU 1001
 
 GRID_MIN EQU -200
 GRID_MAX EQU  200
@@ -293,13 +300,13 @@ PIXELFORMATDESCRIPTOR ENDS
 
 
 ; ============================================================
-; WINDOW
+; WINDOW INFORMATION
 ; ============================================================
 
 className db "GraphXWindowClass",0
 
 windowTitle db \
-    "GraphX - Pan / Zoom / Reset",0
+    "GraphX - Dynamic Function Sampling",0
 
 
 ; ============================================================
@@ -328,7 +335,7 @@ graphBlue  REAL4 0.35
 
 
 ; ============================================================
-; BASIC FLOAT CONSTANTS
+; FLOAT CONSTANTS
 ; ============================================================
 
 floatZero REAL4 0.0
@@ -336,16 +343,14 @@ floatOne  REAL4 1.0
 
 
 ; ============================================================
-; VIEW STATE
-;
-; centerX / centerY determine where the camera is looking.
-;
-; zoomHalfRange determines the base visible half-range.
-;
-; Default:
-;
-;     center = (0,0)
-;     zoomHalfRange = 10
+; DEFAULT CAMERA
+; ============================================================
+
+defaultHalfRange REAL4 10.0
+
+
+; ============================================================
+; CAMERA STATE
 ; ============================================================
 
 centerX REAL4 0.0
@@ -369,8 +374,6 @@ zoomCandidate REAL4 0.0
 
 ; ============================================================
 ; PAN SETTINGS
-;
-; Each key press moves 10% of the current visible half-range.
 ; ============================================================
 
 panFraction REAL4 0.10
@@ -380,7 +383,7 @@ panAmountY REAL4 0.0
 
 
 ; ============================================================
-; CALCULATED VIEWPORT
+; MATHEMATICAL VIEWPORT
 ; ============================================================
 
 viewHalfX REAL4 10.0
@@ -393,7 +396,7 @@ viewTop    REAL4  10.0
 
 
 ; ============================================================
-; OPENGL TRANSFORMATION VALUES
+; OPENGL VIEW TRANSFORMATION
 ; ============================================================
 
 viewScaleX REAL4 0.1
@@ -405,13 +408,13 @@ viewTranslateY REAL4 0.0
 
 
 ; ============================================================
-; FUNCTION
+; DYNAMIC GRAPH SAMPLING
 ;
-; y = x^2
+; graphIntervalCount is stored as an integer because x87
+; FIDIV divides by an integer memory operand.
 ; ============================================================
 
-graphStartX REAL4 -3.0
-graphStepX  REAL4  0.05
+graphIntervalCount DWORD GRAPH_INTERVALS
 
 
 ; ============================================================
@@ -421,6 +424,10 @@ graphStepX  REAL4  0.05
 .data?
 
 
+; ============================================================
+; WINDOWS / OPENGL HANDLES
+; ============================================================
+
 hInstance DWORD ?
 hMainWnd  DWORD ?
 
@@ -429,15 +436,36 @@ hGLRC DWORD ?
 
 pixelFormat DWORD ?
 
+
+; ============================================================
+; WINDOW SIZE
+; ============================================================
+
 clientW DWORD ?
 clientH DWORD ?
 
 
+; ============================================================
+; GRAPH WORKING DATA
+; ============================================================
+
 currentX REAL4 ?
 currentY REAL4 ?
 
+graphStepX REAL4 ?
+
+
+; ============================================================
+; GRID WORKING DATA
+; ============================================================
+
 gridIndex DWORD ?
 gridCoord REAL4 ?
+
+
+; ============================================================
+; STRUCTURE INSTANCES
+; ============================================================
 
 windowClass WNDCLASSEX <>
 messageData MSG <>
@@ -454,29 +482,9 @@ pfd PIXELFORMATDESCRIPTOR <>
 
 
 ; ============================================================
-; UPDATE VIEW STATE
+; UPDATE MATHEMATICAL VIEW
 ;
-; Calculates:
-;
-;     viewHalfX
-;     viewHalfY
-;
-; based on:
-;
-;     zoomHalfRange
-;     window aspect ratio
-;
-; Then calculates:
-;
-;     left
-;     right
-;     bottom
-;     top
-;
-; around:
-;
-;     centerX
-;     centerY
+; Determines aspect-ratio-correct visible mathematical bounds.
 ; ============================================================
 
 UpdateViewState PROC
@@ -485,12 +493,13 @@ UpdateViewState PROC
     cmp clientW, 0
     je UpdateViewDone
 
+
     cmp clientH, 0
     je UpdateViewDone
 
 
     ; --------------------------------------------------------
-    ; Wide window?
+    ; Wide/square window?
     ; --------------------------------------------------------
 
     mov eax, clientW
@@ -503,15 +512,18 @@ UpdateViewState PROC
 ; ============================================================
 ; TALL WINDOW
 ;
-; X uses zoomHalfRange.
+; Keep X half-range at zoomHalfRange.
 ;
-; Y expands according to aspect ratio.
+; Expand Y according to:
+;
+; zoomHalfRange * height / width
 ; ============================================================
 
 ViewTall:
 
 
     fld DWORD PTR zoomHalfRange
+
     fstp DWORD PTR viewHalfX
 
 
@@ -524,21 +536,24 @@ ViewTall:
     fstp DWORD PTR viewHalfY
 
 
-    jmp CalculateBounds
+    jmp CalculateViewBounds
 
 
 ; ============================================================
-; WIDE WINDOW
+; WIDE / SQUARE WINDOW
 ;
-; Y uses zoomHalfRange.
+; Keep Y half-range at zoomHalfRange.
 ;
-; X expands according to aspect ratio.
+; Expand X according to:
+;
+; zoomHalfRange * width / height
 ; ============================================================
 
 ViewWide:
 
 
     fld DWORD PTR zoomHalfRange
+
     fstp DWORD PTR viewHalfY
 
 
@@ -555,12 +570,10 @@ ViewWide:
 ; CALCULATE MATHEMATICAL BOUNDS
 ; ============================================================
 
-CalculateBounds:
+CalculateViewBounds:
 
 
-    ; --------------------------------------------------------
     ; left = centerX - halfX
-    ; --------------------------------------------------------
 
     fld DWORD PTR centerX
 
@@ -569,9 +582,7 @@ CalculateBounds:
     fstp DWORD PTR viewLeft
 
 
-    ; --------------------------------------------------------
     ; right = centerX + halfX
-    ; --------------------------------------------------------
 
     fld DWORD PTR centerX
 
@@ -580,9 +591,7 @@ CalculateBounds:
     fstp DWORD PTR viewRight
 
 
-    ; --------------------------------------------------------
     ; bottom = centerY - halfY
-    ; --------------------------------------------------------
 
     fld DWORD PTR centerY
 
@@ -591,9 +600,7 @@ CalculateBounds:
     fstp DWORD PTR viewBottom
 
 
-    ; --------------------------------------------------------
     ; top = centerY + halfY
-    ; --------------------------------------------------------
 
     fld DWORD PTR centerY
 
@@ -603,9 +610,10 @@ CalculateBounds:
 
 
 ; ============================================================
-; CALCULATE OPENGL SCALE
+; PROJECTION SCALE
 ;
-; scale = 1 / halfRange
+; scaleX = 1 / halfX
+; scaleY = 1 / halfY
 ; ============================================================
 
     fld DWORD PTR floatOne
@@ -623,13 +631,9 @@ CalculateBounds:
 
 
 ; ============================================================
-; TRANSLATION
+; CAMERA TRANSLATION
 ;
-; OpenGL should move the mathematical world opposite
-; our camera center.
-;
-; translateX = -centerX
-; translateY = -centerY
+; Mathematical world must move opposite camera position.
 ; ============================================================
 
     fld DWORD PTR centerX
@@ -647,6 +651,7 @@ CalculateBounds:
 
 
 UpdateViewDone:
+
 
     ret
 
@@ -677,22 +682,14 @@ SetupViewport PROC
 
 SetupViewportDone:
 
+
     ret
 
 SetupViewport ENDP
 
 
 ; ============================================================
-; SETUP MATHEMATICAL PROJECTION
-;
-; Desired mapping:
-;
-;     OpenGL X = (WorldX - centerX) / halfX
-;     OpenGL Y = (WorldY - centerY) / halfY
-;
-; Matrix:
-;
-;     Scale * Translate
+; SETUP OPENGL MATHEMATICAL PROJECTION
 ; ============================================================
 
 SetupProjection PROC
@@ -705,12 +702,7 @@ SetupProjection PROC
 
 
     ; --------------------------------------------------------
-    ; Scale first.
-    ;
-    ; OpenGL matrix multiplication means the later translation
-    ; is applied to vertices first:
-    ;
-    ;     S * T * vertex
+    ; Scaling
     ; --------------------------------------------------------
 
     invoke glScalef, \
@@ -719,11 +711,19 @@ SetupProjection PROC
         DWORD PTR viewScaleZ
 
 
+    ; --------------------------------------------------------
+    ; Camera translation
+    ; --------------------------------------------------------
+
     invoke glTranslatef, \
         DWORD PTR viewTranslateX, \
         DWORD PTR viewTranslateY, \
         DWORD PTR floatZero
 
+
+    ; --------------------------------------------------------
+    ; Return to model-view.
+    ; --------------------------------------------------------
 
     invoke glMatrixMode, GL_MODELVIEW
 
@@ -737,7 +737,7 @@ SetupProjection ENDP
 
 
 ; ============================================================
-; DRAW CARTESIAN GRID
+; DRAW GRID
 ; ============================================================
 
 DrawGrid PROC
@@ -758,13 +758,17 @@ DrawGrid PROC
 GridLoop:
 
 
+    ; --------------------------------------------------------
+    ; Skip zero because axes are rendered separately.
+    ; --------------------------------------------------------
+
     cmp gridIndex, 0
 
     je GridNext
 
 
     ; --------------------------------------------------------
-    ; Convert integer grid coordinate to REAL4.
+    ; Convert integer grid value to REAL4.
     ; --------------------------------------------------------
 
     fild DWORD PTR gridIndex
@@ -773,7 +777,7 @@ GridLoop:
 
 
     ; ========================================================
-    ; VERTICAL LINE
+    ; VERTICAL GRID LINE
     ; ========================================================
 
     invoke glVertex2f, \
@@ -787,7 +791,7 @@ GridLoop:
 
 
     ; ========================================================
-    ; HORIZONTAL LINE
+    ; HORIZONTAL GRID LINE
     ; ========================================================
 
     invoke glVertex2f, \
@@ -835,7 +839,9 @@ DrawAxes PROC
     invoke glBegin, GL_LINES
 
 
+    ; ========================================================
     ; X AXIS
+    ; ========================================================
 
     invoke glVertex2f, \
         DWORD PTR viewLeft, \
@@ -847,7 +853,9 @@ DrawAxes PROC
         DWORD PTR floatZero
 
 
+    ; ========================================================
     ; Y AXIS
+    ; ========================================================
 
     invoke glVertex2f, \
         DWORD PTR floatZero, \
@@ -868,9 +876,82 @@ DrawAxes ENDP
 
 
 ; ============================================================
+; CALCULATE DYNAMIC GRAPH STEP
+;
+; Instead of:
+;
+;     x = -3 ... +3
+;
+; we use:
+;
+;     x = viewLeft ... viewRight
+;
+; Step:
+;
+;     (viewRight - viewLeft) / 1000
+; ============================================================
+
+CalculateGraphStep PROC
+
+
+    fld DWORD PTR viewRight
+
+
+    fsub DWORD PTR viewLeft
+
+
+    fidiv DWORD PTR graphIntervalCount
+
+
+    fstp DWORD PTR graphStepX
+
+
+    ret
+
+CalculateGraphStep ENDP
+
+
+; ============================================================
+; EVALUATE CURRENT FUNCTION
+;
+; Current function:
+;
+;       y = x^2
+;
+; Input:
+;
+;       currentX
+;
+; Output:
+;
+;       currentY
+;
+; This procedure will eventually be replaced by the
+; GraphX expression evaluator.
+; ============================================================
+
+EvaluateCurrentFunction PROC
+
+
+    fld DWORD PTR currentX
+
+
+    fmul DWORD PTR currentX
+
+
+    fstp DWORD PTR currentY
+
+
+    ret
+
+EvaluateCurrentFunction ENDP
+
+
+; ============================================================
 ; DRAW FUNCTION
 ;
-; y = x^2
+; Dynamically samples y = x^2 across the currently visible
+; mathematical X range.
 ; ============================================================
 
 DrawFunction PROC
@@ -879,23 +960,42 @@ DrawFunction PROC
     push edi
 
 
+    ; --------------------------------------------------------
+    ; Function color.
+    ; --------------------------------------------------------
+
     invoke glColor3f, \
         DWORD PTR graphRed, \
         DWORD PTR graphGreen, \
         DWORD PTR graphBlue
 
 
-    ; --------------------------------------------------------
-    ; x = -3
-    ; --------------------------------------------------------
+    ; ========================================================
+    ; Calculate dynamic sampling step.
+    ; ========================================================
 
-    fld DWORD PTR graphStartX
+    invoke CalculateGraphStep
+
+
+    ; ========================================================
+    ; currentX = viewLeft
+    ; ========================================================
+
+    fld DWORD PTR viewLeft
 
     fstp DWORD PTR currentX
 
 
-    mov edi, GRAPH_SAMPLES
+    ; ========================================================
+    ; Number of points.
+    ; ========================================================
 
+    mov edi, GRAPH_SAMPLE_COUNT
+
+
+    ; ========================================================
+    ; Begin graph.
+    ; ========================================================
 
     invoke glBegin, GL_LINE_STRIP
 
@@ -903,34 +1003,45 @@ DrawFunction PROC
 FunctionLoop:
 
 
-    ; --------------------------------------------------------
-    ; y = x * x
-    ; --------------------------------------------------------
+    ; ========================================================
+    ; Evaluate:
+    ;
+    ; y = f(x)
+    ;
+    ; currently:
+    ;
+    ; y = x^2
+    ; ========================================================
 
-    fld DWORD PTR currentX
+    invoke EvaluateCurrentFunction
 
-    fmul DWORD PTR currentX
 
-    fstp DWORD PTR currentY
-
+    ; ========================================================
+    ; Send generated coordinate to OpenGL.
+    ; ========================================================
 
     invoke glVertex2f, \
         DWORD PTR currentX, \
         DWORD PTR currentY
 
 
-    ; --------------------------------------------------------
-    ; x += 0.05
-    ; --------------------------------------------------------
+    ; ========================================================
+    ; Advance X.
+    ;
+    ; x = x + graphStepX
+    ; ========================================================
 
     fld DWORD PTR currentX
 
+
     fadd DWORD PTR graphStepX
+
 
     fstp DWORD PTR currentX
 
 
     dec edi
+
 
     jnz FunctionLoop
 
@@ -947,7 +1058,7 @@ DrawFunction ENDP
 
 
 ; ============================================================
-; RENDER SCENE
+; MAIN RENDERER
 ; ============================================================
 
 RenderScene PROC
@@ -968,25 +1079,50 @@ RenderScene PROC
     je RenderDone
 
 
+    ; ========================================================
+    ; Clear previous frame.
+    ; ========================================================
+
     invoke glClear, GL_COLOR_BUFFER_BIT
 
+
+    ; ========================================================
+    ; Mathematical camera/projection.
+    ; ========================================================
 
     invoke SetupProjection
 
 
+    ; ========================================================
+    ; Grid.
+    ; ========================================================
+
     invoke DrawGrid
 
+
+    ; ========================================================
+    ; Axes.
+    ; ========================================================
 
     invoke DrawAxes
 
 
+    ; ========================================================
+    ; Function.
+    ; ========================================================
+
     invoke DrawFunction
 
+
+    ; ========================================================
+    ; Present completed frame.
+    ; ========================================================
 
     invoke SwapBuffers, hDC
 
 
 RenderDone:
+
 
     ret
 
@@ -996,7 +1132,7 @@ RenderScene ENDP
 ; ============================================================
 ; CALCULATE PAN STEP
 ;
-; Pan by 10% of current visible half-width / half-height.
+; Pan = 10% of current visible half-range.
 ; ============================================================
 
 CalculatePanStep PROC
@@ -1004,14 +1140,18 @@ CalculatePanStep PROC
 
     fld DWORD PTR viewHalfX
 
+
     fmul DWORD PTR panFraction
+
 
     fstp DWORD PTR panAmountX
 
 
     fld DWORD PTR viewHalfY
 
+
     fmul DWORD PTR panFraction
+
 
     fstp DWORD PTR panAmountY
 
@@ -1033,7 +1173,9 @@ PanLeft PROC
 
     fld DWORD PTR centerX
 
+
     fsub DWORD PTR panAmountX
+
 
     fstp DWORD PTR centerX
 
@@ -1061,7 +1203,9 @@ PanRight PROC
 
     fld DWORD PTR centerX
 
+
     fadd DWORD PTR panAmountX
+
 
     fstp DWORD PTR centerX
 
@@ -1089,7 +1233,9 @@ PanUp PROC
 
     fld DWORD PTR centerY
 
+
     fadd DWORD PTR panAmountY
+
 
     fstp DWORD PTR centerY
 
@@ -1117,7 +1263,9 @@ PanDown PROC
 
     fld DWORD PTR centerY
 
+
     fsub DWORD PTR panAmountY
+
 
     fstp DWORD PTR centerY
 
@@ -1135,46 +1283,48 @@ PanDown ENDP
 
 ; ============================================================
 ; ZOOM IN
-;
-; newHalfRange = currentHalfRange * 0.80
-;
-; Minimum = 0.50
 ; ============================================================
 
 ZoomIn PROC
 
 
+    ; candidate = current * 0.80
+
     fld DWORD PTR zoomHalfRange
 
+
     fmul DWORD PTR zoomInFactor
+
 
     fstp DWORD PTR zoomCandidate
 
 
     ; --------------------------------------------------------
-    ; Compare candidate with minimum.
+    ; candidate compared against minimum.
     ; --------------------------------------------------------
 
     fld DWORD PTR zoomCandidate
 
+
     fcomp DWORD PTR minHalfRange
+
 
     fnstsw ax
 
+
     sahf
 
-
-    ; candidate < minimum?
 
     jb ZoomInClamp
 
 
     fld DWORD PTR zoomCandidate
 
+
     fstp DWORD PTR zoomHalfRange
 
 
-    jmp ZoomInUpdate
+    jmp ZoomInApply
 
 
 ZoomInClamp:
@@ -1182,13 +1332,15 @@ ZoomInClamp:
 
     fld DWORD PTR minHalfRange
 
+
     fstp DWORD PTR zoomHalfRange
 
 
-ZoomInUpdate:
+ZoomInApply:
 
 
     invoke UpdateViewState
+
 
     invoke RenderScene
 
@@ -1200,46 +1352,48 @@ ZoomIn ENDP
 
 ; ============================================================
 ; ZOOM OUT
-;
-; newHalfRange = currentHalfRange * 1.25
-;
-; Maximum = 50
 ; ============================================================
 
 ZoomOut PROC
 
 
+    ; candidate = current * 1.25
+
     fld DWORD PTR zoomHalfRange
 
+
     fmul DWORD PTR zoomOutFactor
+
 
     fstp DWORD PTR zoomCandidate
 
 
     ; --------------------------------------------------------
-    ; Compare candidate with maximum.
+    ; candidate compared against maximum.
     ; --------------------------------------------------------
 
     fld DWORD PTR zoomCandidate
 
+
     fcomp DWORD PTR maxHalfRange
+
 
     fnstsw ax
 
+
     sahf
 
-
-    ; candidate > maximum?
 
     ja ZoomOutClamp
 
 
     fld DWORD PTR zoomCandidate
 
+
     fstp DWORD PTR zoomHalfRange
 
 
-    jmp ZoomOutUpdate
+    jmp ZoomOutApply
 
 
 ZoomOutClamp:
@@ -1247,13 +1401,15 @@ ZoomOutClamp:
 
     fld DWORD PTR maxHalfRange
 
+
     fstp DWORD PTR zoomHalfRange
 
 
-ZoomOutUpdate:
+ZoomOutApply:
 
 
     invoke UpdateViewState
+
 
     invoke RenderScene
 
@@ -1270,18 +1426,27 @@ ZoomOut ENDP
 ResetView PROC
 
 
+    ; centerX = 0
+
     fld DWORD PTR floatZero
+
+
     fstp DWORD PTR centerX
 
 
+    ; centerY = 0
+
     fld DWORD PTR floatZero
+
+
     fstp DWORD PTR centerY
 
 
-    ; Default half-range = 10
-    ; Use immediate constant from initialized value below.
+    ; zoom = 10
 
     fld DWORD PTR defaultHalfRange
+
+
     fstp DWORD PTR zoomHalfRange
 
 
@@ -1306,63 +1471,63 @@ HandleKeyboard PROC STDCALL keyCode:DWORD
     mov eax, keyCode
 
 
-    ; --------------------------------------------------------
+    ; ========================================================
     ; ESC
-    ; --------------------------------------------------------
+    ; ========================================================
 
     cmp eax, VK_ESCAPE
 
     je KeyboardExit
 
 
-    ; --------------------------------------------------------
+    ; ========================================================
     ; W
-    ; --------------------------------------------------------
+    ; ========================================================
 
     cmp eax, VK_W
 
     je KeyboardUp
 
 
-    ; --------------------------------------------------------
+    ; ========================================================
     ; S
-    ; --------------------------------------------------------
+    ; ========================================================
 
     cmp eax, VK_S
 
     je KeyboardDown
 
 
-    ; --------------------------------------------------------
+    ; ========================================================
     ; A
-    ; --------------------------------------------------------
+    ; ========================================================
 
     cmp eax, VK_A
 
     je KeyboardLeft
 
 
-    ; --------------------------------------------------------
+    ; ========================================================
     ; D
-    ; --------------------------------------------------------
+    ; ========================================================
 
     cmp eax, VK_D
 
     je KeyboardRight
 
 
-    ; --------------------------------------------------------
+    ; ========================================================
     ; R
-    ; --------------------------------------------------------
+    ; ========================================================
 
     cmp eax, VK_R
 
     je KeyboardReset
 
 
-    ; --------------------------------------------------------
+    ; ========================================================
     ; + / =
-    ; --------------------------------------------------------
+    ; ========================================================
 
     cmp eax, VK_OEM_PLUS
 
@@ -1374,9 +1539,9 @@ HandleKeyboard PROC STDCALL keyCode:DWORD
     je KeyboardZoomIn
 
 
-    ; --------------------------------------------------------
+    ; ========================================================
     ; -
-    ; --------------------------------------------------------
+    ; ========================================================
 
     cmp eax, VK_OEM_MINUS
 
@@ -1393,56 +1558,72 @@ HandleKeyboard PROC STDCALL keyCode:DWORD
 
 KeyboardUp:
 
+
     invoke PanUp
+
 
     ret
 
 
 KeyboardDown:
 
+
     invoke PanDown
+
 
     ret
 
 
 KeyboardLeft:
 
+
     invoke PanLeft
+
 
     ret
 
 
 KeyboardRight:
 
+
     invoke PanRight
+
 
     ret
 
 
 KeyboardZoomIn:
 
+
     invoke ZoomIn
+
 
     ret
 
 
 KeyboardZoomOut:
 
+
     invoke ZoomOut
+
 
     ret
 
 
 KeyboardReset:
 
+
     invoke ResetView
+
 
     ret
 
 
 KeyboardExit:
 
+
     invoke DestroyWindow, hMainWnd
+
 
     ret
 
@@ -1457,22 +1638,28 @@ HandleKeyboard ENDP
 InitializeOpenGL PROC STDCALL targetWnd:DWORD
 
 
+    ; ========================================================
+    ; Device Context
+    ; ========================================================
+
     invoke GetDC, targetWnd
 
 
     test eax, eax
 
-    jz InitFailed
+
+    jz OpenGLInitFailed
 
 
     mov hDC, eax
 
 
-    ; --------------------------------------------------------
-    ; Pixel format
-    ; --------------------------------------------------------
+    ; ========================================================
+    ; Pixel Format Descriptor
+    ; ========================================================
 
     mov pfd.nSize, SIZEOF PIXELFORMATDESCRIPTOR
+
 
     mov pfd.nVersion, 1
 
@@ -1488,11 +1675,16 @@ InitializeOpenGL PROC STDCALL targetWnd:DWORD
 
     mov pfd.cColorBits, 32
 
+
     mov pfd.cDepthBits, 24
 
 
     mov pfd.iLayerType, PFD_MAIN_PLANE
 
+
+    ; ========================================================
+    ; Choose Pixel Format
+    ; ========================================================
 
     invoke ChoosePixelFormat, \
         hDC, \
@@ -1501,11 +1693,16 @@ InitializeOpenGL PROC STDCALL targetWnd:DWORD
 
     test eax, eax
 
-    jz InitFailed
+
+    jz OpenGLInitFailed
 
 
     mov pixelFormat, eax
 
+
+    ; ========================================================
+    ; Set Pixel Format
+    ; ========================================================
 
     invoke SetPixelFormat, \
         hDC, \
@@ -1515,23 +1712,29 @@ InitializeOpenGL PROC STDCALL targetWnd:DWORD
 
     test eax, eax
 
-    jz InitFailed
+
+    jz OpenGLInitFailed
 
 
-    ; --------------------------------------------------------
-    ; WGL context
-    ; --------------------------------------------------------
+    ; ========================================================
+    ; Create OpenGL Rendering Context
+    ; ========================================================
 
     invoke wglCreateContext, hDC
 
 
     test eax, eax
 
-    jz InitFailed
+
+    jz OpenGLInitFailed
 
 
     mov hGLRC, eax
 
+
+    ; ========================================================
+    ; Make Rendering Context Current
+    ; ========================================================
 
     invoke wglMakeCurrent, \
         hDC, \
@@ -1540,12 +1743,13 @@ InitializeOpenGL PROC STDCALL targetWnd:DWORD
 
     test eax, eax
 
-    jz InitFailed
+
+    jz OpenGLInitFailed
 
 
-    ; --------------------------------------------------------
-    ; Background color
-    ; --------------------------------------------------------
+    ; ========================================================
+    ; Background Color
+    ; ========================================================
 
     invoke glClearColor, \
         DWORD PTR clearRed, \
@@ -1554,9 +1758,9 @@ InitializeOpenGL PROC STDCALL targetWnd:DWORD
         DWORD PTR clearAlpha
 
 
-    ; --------------------------------------------------------
-    ; Initial client size
-    ; --------------------------------------------------------
+    ; ========================================================
+    ; Initial Client Dimensions
+    ; ========================================================
 
     invoke GetClientRect, \
         targetWnd, \
@@ -1565,20 +1769,32 @@ InitializeOpenGL PROC STDCALL targetWnd:DWORD
 
     mov eax, clientRect.right
 
+
     sub eax, clientRect.left
+
 
     mov clientW, eax
 
 
     mov eax, clientRect.bottom
 
+
     sub eax, clientRect.top
+
 
     mov clientH, eax
 
 
+    ; ========================================================
+    ; Calculate mathematical view.
+    ; ========================================================
+
     invoke UpdateViewState
 
+
+    ; ========================================================
+    ; Setup OpenGL pixel viewport.
+    ; ========================================================
 
     invoke SetupViewport
 
@@ -1589,7 +1805,7 @@ InitializeOpenGL PROC STDCALL targetWnd:DWORD
     ret
 
 
-InitFailed:
+OpenGLInitFailed:
 
 
     xor eax, eax
@@ -1601,15 +1817,20 @@ InitializeOpenGL ENDP
 
 
 ; ============================================================
-; CLEANUP OPENGL
+; OPENGL CLEANUP
 ; ============================================================
 
 CleanupOpenGL PROC STDCALL targetWnd:DWORD
 
 
+    ; ========================================================
+    ; Rendering Context
+    ; ========================================================
+
     cmp hGLRC, 0
 
-    je SkipGLContext
+
+    je SkipContextCleanup
 
 
     invoke wglMakeCurrent, 0, 0
@@ -1621,12 +1842,17 @@ CleanupOpenGL PROC STDCALL targetWnd:DWORD
     mov hGLRC, 0
 
 
-SkipGLContext:
+SkipContextCleanup:
 
+
+    ; ========================================================
+    ; Device Context
+    ; ========================================================
 
     cmp hDC, 0
 
-    je CleanupDone
+
+    je CleanupFinished
 
 
     invoke ReleaseDC, \
@@ -1637,7 +1863,7 @@ SkipGLContext:
     mov hDC, 0
 
 
-CleanupDone:
+CleanupFinished:
 
 
     ret
@@ -1656,50 +1882,59 @@ WindowProc PROC STDCALL \
     lParam:DWORD
 
 
-    ; --------------------------------------------------------
+    ; ========================================================
     ; WM_PAINT
-    ; --------------------------------------------------------
+    ; ========================================================
 
     cmp uMsg, WM_PAINT
+
 
     je WindowPaint
 
 
-    ; --------------------------------------------------------
+    ; ========================================================
     ; WM_SIZE
-    ; --------------------------------------------------------
+    ; ========================================================
 
     cmp uMsg, WM_SIZE
+
 
     je WindowSize
 
 
-    ; --------------------------------------------------------
+    ; ========================================================
     ; WM_KEYDOWN
-    ; --------------------------------------------------------
+    ; ========================================================
 
     cmp uMsg, WM_KEYDOWN
+
 
     je WindowKeyDown
 
 
-    ; --------------------------------------------------------
+    ; ========================================================
     ; WM_ERASEBKGND
-    ; --------------------------------------------------------
+    ; ========================================================
 
     cmp uMsg, WM_ERASEBKGND
 
-    je BackgroundHandled
+
+    je WindowBackgroundHandled
 
 
-    ; --------------------------------------------------------
+    ; ========================================================
     ; WM_DESTROY
-    ; --------------------------------------------------------
+    ; ========================================================
 
     cmp uMsg, WM_DESTROY
 
+
     je WindowDestroyed
 
+
+    ; ========================================================
+    ; Default Windows processing.
+    ; ========================================================
 
     invoke DefWindowProcA, \
         hWnd, \
@@ -1712,7 +1947,7 @@ WindowProc PROC STDCALL \
 
 
 ; ============================================================
-; PAINT
+; WINDOW PAINT
 ; ============================================================
 
 WindowPaint:
@@ -1733,35 +1968,50 @@ WindowPaint:
 
 
 ; ============================================================
-; RESIZE
+; WINDOW RESIZE
+;
+; LOWORD(lParam) = width
+; HIWORD(lParam) = height
 ; ============================================================
 
 WindowSize:
 
 
-    ; Width
+    ; --------------------------------------------------------
+    ; Width.
+    ; --------------------------------------------------------
 
     mov eax, lParam
 
+
     movzx ecx, ax
+
 
     mov clientW, ecx
 
 
-    ; Height
+    ; --------------------------------------------------------
+    ; Height.
+    ; --------------------------------------------------------
 
     mov eax, lParam
 
+
     shr eax, 16
 
+
     movzx ecx, ax
+
 
     mov clientH, ecx
 
 
-    ; OpenGL may not be initialized yet.
+    ; --------------------------------------------------------
+    ; Window may receive WM_SIZE before OpenGL exists.
+    ; --------------------------------------------------------
 
     cmp hGLRC, 0
+
 
     je WindowSizeDone
 
@@ -1801,10 +2051,10 @@ WindowKeyDown:
 
 
 ; ============================================================
-; BACKGROUND
+; BACKGROUND ERASE
 ; ============================================================
 
-BackgroundHandled:
+WindowBackgroundHandled:
 
 
     mov eax, 1
@@ -1814,7 +2064,7 @@ BackgroundHandled:
 
 
 ; ============================================================
-; DESTROY
+; WINDOW DESTROY
 ; ============================================================
 
 WindowDestroyed:
@@ -1836,52 +2086,41 @@ WindowProc ENDP
 
 
 ; ============================================================
-; ADDITIONAL INITIALIZED CONSTANT
-;
-; Kept here because ResetView references it.
-; ============================================================
-
-.data
-
-defaultHalfRange REAL4 10.0
-
-
-.code
-
-
-; ============================================================
 ; PROGRAM ENTRY
 ; ============================================================
 
 start:
 
 
-    ; --------------------------------------------------------
-    ; Initialize x87.
-    ; --------------------------------------------------------
+    ; ========================================================
+    ; Initialize x87 FPU.
+    ; ========================================================
 
     finit
 
 
-    ; --------------------------------------------------------
-    ; Global handles.
-    ; --------------------------------------------------------
+    ; ========================================================
+    ; Initialize handles/state.
+    ; ========================================================
 
     mov hDC, 0
 
+
     mov hGLRC, 0
+
 
     mov hMainWnd, 0
 
 
     mov clientW, 0
 
+
     mov clientH, 0
 
 
-    ; --------------------------------------------------------
-    ; Module handle.
-    ; --------------------------------------------------------
+    ; ========================================================
+    ; Get Application Module Handle
+    ; ========================================================
 
     invoke GetModuleHandleA, 0
 
@@ -1889,9 +2128,9 @@ start:
     mov hInstance, eax
 
 
-    ; --------------------------------------------------------
-    ; Window class.
-    ; --------------------------------------------------------
+    ; ========================================================
+    ; Configure Window Class
+    ; ========================================================
 
     mov windowClass.cbSize, SIZEOF WNDCLASSEX
 
@@ -1907,18 +2146,25 @@ start:
 
     mov windowClass.cbClsExtra, 0
 
+
     mov windowClass.cbWndExtra, 0
 
 
     mov eax, hInstance
+
 
     mov windowClass.hInstance, eax
 
 
     mov windowClass.hIcon, 0
 
+
     mov windowClass.hIconSm, 0
 
+
+    ; ========================================================
+    ; Cursor
+    ; ========================================================
 
     invoke LoadCursorA, \
         0, \
@@ -1928,16 +2174,22 @@ start:
     mov windowClass.hCursor, eax
 
 
+    ; OpenGL handles the background.
+
     mov windowClass.hbrBackground, 0
 
+
+    ; No menu.
+
     mov windowClass.lpszMenuName, 0
+
 
     mov windowClass.lpszClassName, OFFSET className
 
 
-    ; --------------------------------------------------------
-    ; Register class.
-    ; --------------------------------------------------------
+    ; ========================================================
+    ; Register Window Class
+    ; ========================================================
 
     invoke RegisterClassExA, \
         ADDR windowClass
@@ -1945,12 +2197,13 @@ start:
 
     test eax, eax
 
+
     jz RegistrationFailed
 
 
-    ; --------------------------------------------------------
-    ; Create window.
-    ; --------------------------------------------------------
+    ; ========================================================
+    ; Create Main Window
+    ; ========================================================
 
     invoke CreateWindowExA, \
         0, \
@@ -1971,27 +2224,29 @@ start:
 
     test eax, eax
 
+
     jz WindowCreationFailed
 
 
     mov hMainWnd, eax
 
 
-    ; --------------------------------------------------------
-    ; OpenGL.
-    ; --------------------------------------------------------
+    ; ========================================================
+    ; Initialize OpenGL
+    ; ========================================================
 
     invoke InitializeOpenGL, hMainWnd
 
 
     test eax, eax
 
+
     jz OpenGLCreationFailed
 
 
-    ; --------------------------------------------------------
-    ; Show window.
-    ; --------------------------------------------------------
+    ; ========================================================
+    ; Show Window
+    ; ========================================================
 
     invoke ShowWindow, \
         hMainWnd, \
@@ -2000,6 +2255,10 @@ start:
 
     invoke UpdateWindow, hMainWnd
 
+
+    ; ========================================================
+    ; Initial Frame
+    ; ========================================================
 
     invoke RenderScene
 
@@ -2018,12 +2277,18 @@ MessageLoop:
         0
 
 
+    ; WM_QUIT
+
     cmp eax, 0
+
 
     je ProgramFinished
 
 
+    ; Error
+
     cmp eax, -1
+
 
     je MessageLoopFailed
 
@@ -2053,7 +2318,7 @@ ProgramFinished:
 
 
 ; ============================================================
-; ERRORS
+; ERROR EXITS
 ; ============================================================
 
 RegistrationFailed:
