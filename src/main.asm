@@ -1,41 +1,35 @@
 ; ============================================================
-; GraphX - Step 17
+; GraphX - Step 18
 ; 32-bit MASM + Win32 + OpenGL
 ;
-; Expression engine:
+; Features:
+;   - Live expression input
+;   - RPN expression compiler
+;   - + - * / ^
+;   - Parentheses
+;   - Unary negative
+;   - sin / cos / tan / sqrt
+;   - Dynamic graph sampling
+;   - Pan / zoom / reset
+;   - Mouse mathematical coordinates
+;   - Crosshair
+;   - Aspect-correct viewport
 ;
-;   x
-;   decimal constants
-;   + - * / ^
-;   parentheses
-;   unary + / -
-;
-; Functions:
-;
-;   sin(...)
-;   cos(...)
-;   tan(...)
-;   sqrt(...)
-;
-; Power:
-;
-;   x^2
-;   x^3
-;   (x+1)^2
-;   sin(x)^2
-;   2^-2
-;
-; Current power limitation:
-;   exponent must evaluate to an integer
-;   between -64 and +64.
+; NEW IN STEP 18:
+;   - Dedicated top UI area
+;   - OpenGL graph below UI area
+;   - Live status text
+;   - Mouse X/Y
+;   - Camera center X/Y
+;   - Zoom display
 ;
 ; Controls:
-;
 ;   ENTER    Apply expression
 ;   W/A/S/D  Pan
 ;   + / -    Zoom
 ;   R        Reset
 ;   ESC      Exit
+;
 ; ============================================================
 
 .686
@@ -139,8 +133,7 @@ MessageBoxA PROTO STDCALL \
 ; WGL
 ; ============================================================
 
-wglCreateContext PROTO STDCALL \
-    :DWORD
+wglCreateContext PROTO STDCALL :DWORD
 
 wglMakeCurrent PROTO STDCALL \
     :DWORD, :DWORD
@@ -156,14 +149,12 @@ wglDeleteContext PROTO STDCALL \
 glClearColor PROTO STDCALL \
     :DWORD, :DWORD, :DWORD, :DWORD
 
-glClear PROTO STDCALL \
-    :DWORD
+glClear PROTO STDCALL :DWORD
 
 glViewport PROTO STDCALL \
     :DWORD, :DWORD, :DWORD, :DWORD
 
-glMatrixMode PROTO STDCALL \
-    :DWORD
+glMatrixMode PROTO STDCALL :DWORD
 
 glLoadIdentity PROTO STDCALL
 
@@ -176,8 +167,7 @@ glTranslatef PROTO STDCALL \
 glColor3f PROTO STDCALL \
     :DWORD, :DWORD, :DWORD
 
-glBegin PROTO STDCALL \
-    :DWORD
+glBegin PROTO STDCALL :DWORD
 
 glEnd PROTO STDCALL
 
@@ -280,7 +270,17 @@ GL_PROJECTION EQU 1701h
 
 
 ; ============================================================
-; GRAPH CONSTANTS
+; GRAPHX UI
+; ============================================================
+
+TOP_PANEL_HEIGHT EQU 72
+
+EDIT_ID   EQU 1001
+STATUS_ID EQU 1002
+
+
+; ============================================================
+; GRAPH
 ; ============================================================
 
 GRAPH_INTERVALS    EQU 1000
@@ -303,10 +303,6 @@ MAX_EVAL_STACK     EQU 128
 MAX_POWER_ABS EQU 64
 
 
-; ============================================================
-; RPN TOKENS
-; ============================================================
-
 TOKEN_CONST EQU 1
 TOKEN_X     EQU 2
 
@@ -325,11 +321,7 @@ TOKEN_SQRT EQU 11
 TOKEN_POW EQU 12
 
 
-; ============================================================
-; INTERNAL OPERATORS
-; ============================================================
-
-OP_NEG  EQU 0F0h
+OP_NEG EQU 0F0h
 
 OP_SIN  EQU 0F1h
 OP_COS  EQU 0F2h
@@ -435,20 +427,18 @@ PIXELFORMATDESCRIPTOR ENDS
 
 
 ; ============================================================
-; WINDOW
+; WINDOW / UI STRINGS
 ; ============================================================
 
 className db "GraphXWindowClass",0
 
 editClassName db "EDIT",0
 
+staticClassName db "STATIC",0
+
 windowTitle db \
-    "GraphX - Power Operator ^",0
+    "GraphX - Mathematical Graphing System",0
 
-
-; ============================================================
-; EXPRESSION
-; ============================================================
 
 expressionText db "x^2",0,252 DUP(0)
 
@@ -456,7 +446,28 @@ lastGoodExpression db MAX_EXPRESSION_LENGTH DUP(0)
 
 
 ; ============================================================
-; ERRORS
+; STATUS TEXT PARTS
+; ============================================================
+
+statusText db 256 DUP(0)
+
+txtMouseX db "Mouse X=",0
+txtMouseY db "  Y=",0
+
+txtNoMouse db "--",0
+
+txtCenter db "   |   Center=(",0
+txtComma db ", ",0
+txtCloseParen db ")",0
+
+txtZoom db "   |   Zoom=",0
+
+txtControls db \
+    "   |   W/A/S/D pan   +/- zoom   R reset",0
+
+
+; ============================================================
+; ERROR
 ; ============================================================
 
 errorTitle db "GraphX Expression Error",0
@@ -466,11 +477,8 @@ errorMessage db \
     "Supported:",13,10, \
     "x, decimals, +, -, *, /, ^",13,10, \
     "parentheses, sin(), cos(), tan(), sqrt()",13,10,13,10, \
-    "Power examples:",13,10, \
-    "x^2",13,10, \
-    "(x+1)^2",13,10, \
-    "sin(x)^2",13,10,13,10, \
-    "Exponent must currently be an integer from -64 to 64.",0
+    "Power exponent must currently be an integer",13,10, \
+    "between -64 and +64.",0
 
 
 ; ============================================================
@@ -514,7 +522,8 @@ floatPointOne REAL4 0.1
 
 tanEpsilon REAL4 0.0001
 
-integerTen DWORD 10
+integerTen     DWORD 10
+integerHundred DWORD 100
 
 
 ; ============================================================
@@ -565,10 +574,6 @@ viewBottom REAL4 -10.0
 viewTop    REAL4  10.0
 
 
-; ============================================================
-; OPENGL CAMERA
-; ============================================================
-
 viewScaleX REAL4 0.1
 viewScaleY REAL4 0.1
 viewScaleZ REAL4 1.0
@@ -597,10 +602,6 @@ parserExpectOperand DWORD 1
 parserNeedFunctionParen DWORD 0
 
 
-; ============================================================
-; NUMBER PARSER
-; ============================================================
-
 parserNumber REAL4 0.0
 
 parserFractionScale REAL4 0.1
@@ -620,28 +621,34 @@ evalStackTop DWORD 0
 
 evalOperandB REAL4 0.0
 
+
 functionInput REAL4 0.0
 functionSin   REAL4 0.0
 functionCos   REAL4 0.0
 
 
 ; ============================================================
-; POWER WORKING DATA
+; POWER
 ; ============================================================
 
 powerExponentInt DWORD 0
 
-powerBase REAL4 0.0
+powerBase   REAL4 0.0
 powerResult REAL4 1.0
 
 powerNegative DWORD 0
 
 
+graphSegmentActive DWORD 0
+
+
 ; ============================================================
-; GRAPH SEGMENT
+; STATUS FORMAT WORK
 ; ============================================================
 
-graphSegmentActive DWORD 0
+statusScaled DWORD 0
+
+statusFraction DWORD 0
 
 
 ; ============================================================
@@ -652,18 +659,25 @@ graphSegmentActive DWORD 0
 
 
 hInstance DWORD ?
+
 hMainWnd DWORD ?
 
 hExpressionEdit DWORD ?
+hStatus DWORD ?
+
 oldEditProc DWORD ?
+
 
 hDC DWORD ?
 hGLRC DWORD ?
 
 pixelFormat DWORD ?
 
+
 clientW DWORD ?
 clientH DWORD ?
+
+graphH DWORD ?
 
 
 currentX REAL4 ?
@@ -678,6 +692,8 @@ gridCoord REAL4 ?
 
 mousePixelX DWORD ?
 mousePixelY DWORD ?
+
+mouseGraphY DWORD ?
 
 mouseWorldX REAL4 ?
 mouseWorldY REAL4 ?
@@ -699,6 +715,9 @@ operatorStack BYTE MAX_OPERATOR_STACK DUP(?)
 evalStack REAL4 MAX_EVAL_STACK DUP(?)
 
 currentOperator BYTE ?
+
+
+statusDigits BYTE 16 DUP(?)
 
 
 windowClass WNDCLASSEX <>
@@ -776,14 +795,443 @@ CopyCString ENDP
 
 
 ; ============================================================
+; APPEND C STRING
+;
+; Returns:
+;   EAX = pointer to final null byte
+; ============================================================
+
+AppendCString PROC STDCALL \
+    destPtr:DWORD, \
+    srcPtr:DWORD
+
+    push esi
+    push edi
+
+    mov edi, destPtr
+    mov esi, srcPtr
+
+
+AppendStringLoop:
+
+    mov al, BYTE PTR [esi]
+
+    cmp al, 0
+    je AppendStringDone
+
+
+    mov BYTE PTR [edi], al
+
+
+    inc esi
+    inc edi
+
+
+    jmp AppendStringLoop
+
+
+AppendStringDone:
+
+    mov BYTE PTR [edi], 0
+
+
+    mov eax, edi
+
+
+    pop edi
+    pop esi
+
+    ret
+
+
+AppendCString ENDP
+
+
+; ============================================================
+; APPEND REAL4 AS FIXED TWO-DECIMAL NUMBER
+;
+; Example:
+;
+;   2.345 -> 2.35
+;  -0.500 -> -0.50
+;
+; Returns:
+;
+;   EAX = pointer to final zero
+; ============================================================
+
+AppendFixed2 PROC STDCALL \
+    destPtr:DWORD, \
+    valuePtr:DWORD
+
+    push esi
+    push edi
+    push ebx
+    push ecx
+    push edx
+
+
+    mov edi, destPtr
+
+    mov esi, valuePtr
+
+
+    ; --------------------------------------------------------
+    ; scaled = round(value * 100)
+    ; --------------------------------------------------------
+
+    fld DWORD PTR [esi]
+
+
+    fimul DWORD PTR integerHundred
+
+
+    fistp DWORD PTR statusScaled
+
+
+    mov eax, statusScaled
+
+
+    ; --------------------------------------------------------
+    ; Sign
+    ; --------------------------------------------------------
+
+    test eax, eax
+
+    jge FixedPositive
+
+
+    mov BYTE PTR [edi], '-'
+
+    inc edi
+
+
+    neg eax
+
+
+FixedPositive:
+
+    ; --------------------------------------------------------
+    ; Integer part / fraction
+    ; --------------------------------------------------------
+
+    xor edx, edx
+
+
+    mov ebx, 100
+
+
+    div ebx
+
+
+    ; EAX = integer part
+    ; EDX = fraction
+
+
+    mov statusFraction, edx
+
+
+    ; --------------------------------------------------------
+    ; Integer part -> decimal text backwards
+    ; --------------------------------------------------------
+
+    lea esi, statusDigits
+
+
+    xor ecx, ecx
+
+
+    test eax, eax
+
+    jne FixedIntegerLoop
+
+
+    mov BYTE PTR [edi], '0'
+
+    inc edi
+
+
+    jmp FixedDecimalPoint
+
+
+FixedIntegerLoop:
+
+    xor edx, edx
+
+
+    mov ebx, 10
+
+
+    div ebx
+
+
+    add dl, '0'
+
+
+    mov BYTE PTR [esi + ecx], dl
+
+
+    inc ecx
+
+
+    test eax, eax
+
+    jne FixedIntegerLoop
+
+
+FixedWriteDigits:
+
+    dec ecx
+
+
+    mov al, BYTE PTR [esi + ecx]
+
+
+    mov BYTE PTR [edi], al
+
+
+    inc edi
+
+
+    test ecx, ecx
+
+    jne FixedWriteDigits
+
+
+FixedDecimalPoint:
+
+    mov BYTE PTR [edi], '.'
+
+    inc edi
+
+
+    ; --------------------------------------------------------
+    ; Fraction = exactly two digits
+    ; --------------------------------------------------------
+
+    mov eax, statusFraction
+
+
+    xor edx, edx
+
+
+    mov ebx, 10
+
+
+    div ebx
+
+
+    ; EAX tens
+    ; EDX ones
+
+
+    add al, '0'
+
+
+    mov BYTE PTR [edi], al
+
+
+    inc edi
+
+
+    add dl, '0'
+
+
+    mov BYTE PTR [edi], dl
+
+
+    inc edi
+
+
+    mov BYTE PTR [edi], 0
+
+
+    mov eax, edi
+
+
+    pop edx
+    pop ecx
+    pop ebx
+    pop edi
+    pop esi
+
+
+    ret
+
+
+AppendFixed2 ENDP
+
+
+; ============================================================
+; UPDATE STATUS DISPLAY
+; ============================================================
+
+UpdateStatusText PROC STDCALL
+
+    push edi
+
+
+    lea edi, statusText
+
+
+    ; Mouse X
+
+    invoke AppendCString, \
+        edi, \
+        ADDR txtMouseX
+
+
+    mov edi, eax
+
+
+    cmp mouseActive, 0
+
+    je StatusNoMouseX
+
+
+    invoke AppendFixed2, \
+        edi, \
+        ADDR mouseWorldX
+
+
+    mov edi, eax
+
+
+    jmp StatusMouseY
+
+
+StatusNoMouseX:
+
+    invoke AppendCString, \
+        edi, \
+        ADDR txtNoMouse
+
+
+    mov edi, eax
+
+
+StatusMouseY:
+
+    invoke AppendCString, \
+        edi, \
+        ADDR txtMouseY
+
+
+    mov edi, eax
+
+
+    cmp mouseActive, 0
+
+    je StatusNoMouseY
+
+
+    invoke AppendFixed2, \
+        edi, \
+        ADDR mouseWorldY
+
+
+    mov edi, eax
+
+
+    jmp StatusCenter
+
+
+StatusNoMouseY:
+
+    invoke AppendCString, \
+        edi, \
+        ADDR txtNoMouse
+
+
+    mov edi, eax
+
+
+StatusCenter:
+
+    invoke AppendCString, \
+        edi, \
+        ADDR txtCenter
+
+
+    mov edi, eax
+
+
+    invoke AppendFixed2, \
+        edi, \
+        ADDR centerX
+
+
+    mov edi, eax
+
+
+    invoke AppendCString, \
+        edi, \
+        ADDR txtComma
+
+
+    mov edi, eax
+
+
+    invoke AppendFixed2, \
+        edi, \
+        ADDR centerY
+
+
+    mov edi, eax
+
+
+    invoke AppendCString, \
+        edi, \
+        ADDR txtCloseParen
+
+
+    mov edi, eax
+
+
+    invoke AppendCString, \
+        edi, \
+        ADDR txtZoom
+
+
+    mov edi, eax
+
+
+    invoke AppendFixed2, \
+        edi, \
+        ADDR zoomHalfRange
+
+
+    mov edi, eax
+
+
+    invoke AppendCString, \
+        edi, \
+        ADDR txtControls
+
+
+    cmp hStatus, 0
+
+    je StatusUpdateDone
+
+
+    invoke SetWindowTextA, \
+        hStatus, \
+        ADDR statusText
+
+
+StatusUpdateDone:
+
+    pop edi
+
+
+    ret
+
+
+UpdateStatusText ENDP
+
+
+; ============================================================
 ; OPERATOR PRECEDENCE
-;
-; + -      1
-; * /      2
-; unary -  3
-; ^        4
-;
-; ^ is handled as right-associative by the parser.
 ; ============================================================
 
 GetOperatorPrecedence PROC STDCALL opValue:DWORD
@@ -821,28 +1269,24 @@ GetOperatorPrecedence PROC STDCALL opValue:DWORD
 Prec1:
 
     mov eax, 1
-
     ret
 
 
 Prec2:
 
     mov eax, 2
-
     ret
 
 
 Prec3:
 
     mov eax, 3
-
     ret
 
 
 Prec4:
 
     mov eax, 4
-
     ret
 
 
@@ -857,21 +1301,26 @@ PushOperatorMarker PROC STDCALL marker:DWORD
 
     mov ecx, operatorTop
 
+
     cmp ecx, MAX_OPERATOR_STACK
+
     jae PushMarkerFailed
 
 
     mov eax, marker
+
 
     mov BYTE PTR [operatorStack + ecx], al
 
 
     inc ecx
 
+
     mov operatorTop, ecx
 
 
     mov eax, 1
+
 
     ret
 
@@ -896,6 +1345,7 @@ EmitOperatorToken PROC STDCALL opValue:DWORD
 
 
     cmp ecx, MAX_RPN_TOKENS
+
     jae EmitFailed
 
 
@@ -919,7 +1369,7 @@ EmitOperatorToken PROC STDCALL opValue:DWORD
 
 
     cmp al, '^'
-    je EmitPower
+    je EmitPow
 
 
     cmp al, OP_NEG
@@ -948,63 +1398,54 @@ EmitOperatorToken PROC STDCALL opValue:DWORD
 EmitAdd:
 
     mov BYTE PTR [rpnTypes + ecx], TOKEN_ADD
-
     jmp EmitSuccess
 
 
 EmitSub:
 
     mov BYTE PTR [rpnTypes + ecx], TOKEN_SUB
-
     jmp EmitSuccess
 
 
 EmitMul:
 
     mov BYTE PTR [rpnTypes + ecx], TOKEN_MUL
-
     jmp EmitSuccess
 
 
 EmitDiv:
 
     mov BYTE PTR [rpnTypes + ecx], TOKEN_DIV
-
     jmp EmitSuccess
 
 
-EmitPower:
+EmitPow:
 
     mov BYTE PTR [rpnTypes + ecx], TOKEN_POW
-
     jmp EmitSuccess
 
 
 EmitNeg:
 
     mov BYTE PTR [rpnTypes + ecx], TOKEN_NEG
-
     jmp EmitSuccess
 
 
 EmitSin:
 
     mov BYTE PTR [rpnTypes + ecx], TOKEN_SIN
-
     jmp EmitSuccess
 
 
 EmitCos:
 
     mov BYTE PTR [rpnTypes + ecx], TOKEN_COS
-
     jmp EmitSuccess
 
 
 EmitTan:
 
     mov BYTE PTR [rpnTypes + ecx], TOKEN_TAN
-
     jmp EmitSuccess
 
 
@@ -1017,10 +1458,12 @@ EmitSuccess:
 
     inc ecx
 
+
     mov rpnCount, ecx
 
 
     mov eax, 1
+
 
     ret
 
@@ -1036,7 +1479,7 @@ EmitOperatorToken ENDP
 
 
 ; ============================================================
-; COMPILE EXPRESSION TO RPN
+; COMPILE EXPRESSION
 ; ============================================================
 
 CompileExpression PROC STDCALL
@@ -1060,10 +1503,6 @@ CompileExpression PROC STDCALL
     mov esi, OFFSET expressionText
 
 
-; ============================================================
-; PARSER LOOP
-; ============================================================
-
 ParseLoop:
 
     mov al, BYTE PTR [esi]
@@ -1073,8 +1512,6 @@ ParseLoop:
     je ParseEnd
 
 
-    ; whitespace
-
     cmp al, ' '
     je ParseAdvance
 
@@ -1082,8 +1519,6 @@ ParseLoop:
     cmp al, 9
     je ParseAdvance
 
-
-    ; Function must be followed by '('.
 
     cmp parserNeedFunctionParen, 0
     je ParseNormal
@@ -1095,12 +1530,11 @@ ParseLoop:
 
     mov parserNeedFunctionParen, 0
 
+
     jmp ParseLeftParenthesis
 
 
 ParseNormal:
-
-    ; X
 
     cmp al, 'x'
     je ParseVariable
@@ -1110,8 +1544,6 @@ ParseNormal:
     je ParseVariable
 
 
-    ; parentheses
-
     cmp al, '('
     je ParseLeftParenthesis
 
@@ -1119,8 +1551,6 @@ ParseNormal:
     cmp al, ')'
     je ParseRightParenthesis
 
-
-    ; number
 
     cmp al, '0'
     jb ParseCheckDecimal
@@ -1135,8 +1565,6 @@ ParseCheckDecimal:
     cmp al, '.'
     je ParseNumber
 
-
-    ; function names
 
     mov dl, al
 
@@ -1154,8 +1582,6 @@ ParseCheckDecimal:
     cmp dl, 't'
     je ParseTanFunction
 
-
-    ; operators
 
     cmp al, '+'
     je ParsePlus
@@ -1180,24 +1606,22 @@ ParseCheckDecimal:
     jmp ParseFailed
 
 
-; ============================================================
-; WHITESPACE
-; ============================================================
-
 ParseAdvance:
 
     inc esi
+
 
     jmp ParseLoop
 
 
 ; ============================================================
-; VARIABLE X
+; X
 ; ============================================================
 
 ParseVariable:
 
     cmp parserExpectOperand, 1
+
     jne ParseFailed
 
 
@@ -1205,6 +1629,7 @@ ParseVariable:
 
 
     cmp ecx, MAX_RPN_TOKENS
+
     jae ParseFailed
 
 
@@ -1215,6 +1640,7 @@ ParseVariable:
 
 
     mov rpnCount, ecx
+
 
     mov parserExpectOperand, 0
 
@@ -1232,10 +1658,9 @@ ParseVariable:
 ParseSFunction:
 
     cmp parserExpectOperand, 1
+
     jne ParseFailed
 
-
-    ; SIN
 
     mov al, BYTE PTR [esi + 1]
 
@@ -1243,6 +1668,7 @@ ParseSFunction:
 
 
     cmp al, 'i'
+
     jne ParseCheckSqrt
 
 
@@ -1252,6 +1678,7 @@ ParseSFunction:
 
 
     cmp al, 'n'
+
     jne ParseFailed
 
 
@@ -1259,6 +1686,7 @@ ParseSFunction:
 
 
     test eax, eax
+
     jz ParseFailed
 
 
@@ -1279,6 +1707,7 @@ ParseCheckSqrt:
 
 
     cmp al, 'q'
+
     jne ParseFailed
 
 
@@ -1288,6 +1717,7 @@ ParseCheckSqrt:
 
 
     cmp al, 'r'
+
     jne ParseFailed
 
 
@@ -1297,6 +1727,7 @@ ParseCheckSqrt:
 
 
     cmp al, 't'
+
     jne ParseFailed
 
 
@@ -1304,6 +1735,7 @@ ParseCheckSqrt:
 
 
     test eax, eax
+
     jz ParseFailed
 
 
@@ -1323,6 +1755,7 @@ ParseCheckSqrt:
 ParseCosFunction:
 
     cmp parserExpectOperand, 1
+
     jne ParseFailed
 
 
@@ -1332,6 +1765,7 @@ ParseCosFunction:
 
 
     cmp al, 'o'
+
     jne ParseFailed
 
 
@@ -1341,6 +1775,7 @@ ParseCosFunction:
 
 
     cmp al, 's'
+
     jne ParseFailed
 
 
@@ -1348,6 +1783,7 @@ ParseCosFunction:
 
 
     test eax, eax
+
     jz ParseFailed
 
 
@@ -1367,6 +1803,7 @@ ParseCosFunction:
 ParseTanFunction:
 
     cmp parserExpectOperand, 1
+
     jne ParseFailed
 
 
@@ -1376,6 +1813,7 @@ ParseTanFunction:
 
 
     cmp al, 'a'
+
     jne ParseFailed
 
 
@@ -1385,6 +1823,7 @@ ParseTanFunction:
 
 
     cmp al, 'n'
+
     jne ParseFailed
 
 
@@ -1392,6 +1831,7 @@ ParseTanFunction:
 
 
     test eax, eax
+
     jz ParseFailed
 
 
@@ -1405,12 +1845,13 @@ ParseTanFunction:
 
 
 ; ============================================================
-; LEFT PARENTHESIS
+; (
 ; ============================================================
 
 ParseLeftParenthesis:
 
     cmp parserExpectOperand, 1
+
     jne ParseFailed
 
 
@@ -1418,6 +1859,7 @@ ParseLeftParenthesis:
 
 
     test eax, eax
+
     jz ParseFailed
 
 
@@ -1428,12 +1870,13 @@ ParseLeftParenthesis:
 
 
 ; ============================================================
-; RIGHT PARENTHESIS
+; )
 ; ============================================================
 
 ParseRightParenthesis:
 
     cmp parserExpectOperand, 0
+
     jne ParseFailed
 
 
@@ -1443,6 +1886,7 @@ RightParenPop:
 
 
     test ecx, ecx
+
     jz ParseFailed
 
 
@@ -1453,6 +1897,7 @@ RightParenPop:
 
 
     cmp al, '('
+
     je RightParenFound
 
 
@@ -1466,6 +1911,7 @@ RightParenPop:
 
 
     test eax, eax
+
     jz ParseFailed
 
 
@@ -1474,8 +1920,6 @@ RightParenPop:
 
 RightParenFound:
 
-    ; remove '('
-
     mov operatorTop, ecx
 
 
@@ -1483,7 +1927,7 @@ RightParenFound:
 
 
 ; ============================================================
-; EMIT FUNCTION AFTER ')'
+; FUNCTION AFTER )
 ; ============================================================
 
 RightParenFunctionCheck:
@@ -1492,6 +1936,7 @@ RightParenFunctionCheck:
 
 
     test ecx, ecx
+
     jz RightParenUnaryCheck
 
 
@@ -1532,12 +1977,9 @@ RightParenEmitFunction:
 
 
     test eax, eax
+
     jz ParseFailed
 
-
-; ============================================================
-; UNARY NEGATION AROUND PARENTHESIS/FUNCTION
-; ============================================================
 
 RightParenUnaryCheck:
 
@@ -1545,6 +1987,7 @@ RightParenUnaryCheck:
 
 
     test ecx, ecx
+
     jz RightParenDone
 
 
@@ -1555,6 +1998,7 @@ RightParenUnaryCheck:
 
 
     cmp al, OP_NEG
+
     jne RightParenDone
 
 
@@ -1568,6 +2012,7 @@ RightParenUnaryCheck:
 
 
     test eax, eax
+
     jz ParseFailed
 
 
@@ -1589,6 +2034,7 @@ RightParenDone:
 ParseNumber:
 
     cmp parserExpectOperand, 1
+
     jne ParseFailed
 
 
@@ -1613,30 +2059,31 @@ NumberLoop:
 
 
     cmp al, '0'
+
     jb NumberCheckDot
 
 
     cmp al, '9'
+
     ja NumberCheckDot
 
 
     movzx eax, al
+
 
     sub eax, '0'
 
 
     mov parserDigitInt, eax
 
+
     mov parserDigitSeen, 1
 
 
     cmp parserDecimalSeen, 0
+
     jne NumberFraction
 
-
-; ------------------------------------------------------------
-; INTEGER PART
-; ------------------------------------------------------------
 
     fld DWORD PTR parserNumber
 
@@ -1655,10 +2102,6 @@ NumberLoop:
 
     jmp NumberLoop
 
-
-; ------------------------------------------------------------
-; FRACTIONAL PART
-; ------------------------------------------------------------
 
 NumberFraction:
 
@@ -1692,10 +2135,12 @@ NumberFraction:
 NumberCheckDot:
 
     cmp al, '.'
+
     jne NumberFinished
 
 
     cmp parserDecimalSeen, 0
+
     jne NumberFinished
 
 
@@ -1711,6 +2156,7 @@ NumberCheckDot:
 NumberFinished:
 
     cmp parserDigitSeen, 1
+
     jne ParseFailed
 
 
@@ -1718,6 +2164,7 @@ NumberFinished:
 
 
     cmp edi, MAX_RPN_TOKENS
+
     jae ParseFailed
 
 
@@ -1735,6 +2182,7 @@ NumberFinished:
 
     mov rpnCount, edi
 
+
     mov parserExpectOperand, 0
 
 
@@ -1742,12 +2190,13 @@ NumberFinished:
 
 
 ; ============================================================
-; PLUS
+; + / -
 ; ============================================================
 
 ParsePlus:
 
     cmp parserExpectOperand, 1
+
     je ParseUnaryPlus
 
 
@@ -1758,16 +2207,14 @@ ParseUnaryPlus:
 
     inc esi
 
+
     jmp ParseLoop
 
-
-; ============================================================
-; MINUS
-; ============================================================
 
 ParseMinus:
 
     cmp parserExpectOperand, 1
+
     je ParseUnaryMinus
 
 
@@ -1780,6 +2227,7 @@ ParseUnaryMinus:
 
 
     test eax, eax
+
     jz ParseFailed
 
 
@@ -1790,12 +2238,13 @@ ParseUnaryMinus:
 
 
 ; ============================================================
-; BINARY OPERATOR
+; BINARY OPERATORS
 ; ============================================================
 
 ParseBinaryOperator:
 
     cmp parserExpectOperand, 0
+
     jne ParseFailed
 
 
@@ -1811,24 +2260,13 @@ ParseBinaryOperator:
     mov ebx, eax
 
 
-; ============================================================
-; SHUNTING-YARD POP
-;
-; ^ is right associative:
-;
-;   2^3^2
-;
-; means:
-;
-;   2^(3^2)
-; ============================================================
-
 BinaryPopLoop:
 
     mov ecx, operatorTop
 
 
     test ecx, ecx
+
     jz PushBinaryOperator
 
 
@@ -1839,6 +2277,7 @@ BinaryPopLoop:
 
 
     cmp al, '('
+
     je PushBinaryOperator
 
 
@@ -1849,19 +2288,14 @@ BinaryPopLoop:
 
 
     test eax, eax
+
     jz PushBinaryOperator
 
 
-    ; --------------------------------------------------------
-    ; Incoming '^':
-    ;
-    ; Pop only if existing precedence is GREATER.
-    ;
-    ; Equal ^ must stay on stack because ^ is
-    ; right-associative.
-    ; --------------------------------------------------------
+    ; ^ is right associative
 
     cmp currentOperator, '^'
+
     jne BinaryNormalAssociativity
 
 
@@ -1872,12 +2306,6 @@ BinaryPopLoop:
 
     jmp BinaryPopOperator
 
-
-; ------------------------------------------------------------
-; Other binary operators:
-;
-; Pop if existing precedence >= incoming.
-; ------------------------------------------------------------
 
 BinaryNormalAssociativity:
 
@@ -1904,6 +2332,7 @@ BinaryPopOperator:
 
 
     test eax, eax
+
     jz ParseFailed
 
 
@@ -1919,6 +2348,7 @@ PushBinaryOperator:
 
 
     test eax, eax
+
     jz ParseFailed
 
 
@@ -1932,26 +2362,25 @@ PushBinaryOperator:
 
 
 ; ============================================================
-; END
+; END PARSER
 ; ============================================================
 
 ParseEnd:
 
     cmp parserNeedFunctionParen, 0
+
     jne ParseFailed
 
 
     cmp parserExpectOperand, 0
+
     jne ParseFailed
 
 
     cmp rpnCount, 0
+
     je ParseFailed
 
-
-; ============================================================
-; FLUSH OPERATOR STACK
-; ============================================================
 
 FlushOperatorStack:
 
@@ -1959,6 +2388,7 @@ FlushOperatorStack:
 
 
     test ecx, ecx
+
     jz CompileSuccess
 
 
@@ -1968,13 +2398,9 @@ FlushOperatorStack:
     mov al, BYTE PTR [operatorStack + ecx]
 
 
-    ; unmatched parenthesis
-
     cmp al, '('
     je ParseFailed
 
-
-    ; unclosed function
 
     cmp al, OP_SIN
     je ParseFailed
@@ -2002,6 +2428,7 @@ FlushOperatorStack:
 
 
     test eax, eax
+
     jz ParseFailed
 
 
@@ -2059,12 +2486,14 @@ EvaluateCurrentFunction PROC STDCALL
 
 
     test edi, edi
+
     jz EvaluationFailed
 
 
 EvaluationLoop:
 
     cmp esi, edi
+
     jae EvaluationFinished
 
 
@@ -2122,16 +2551,13 @@ EvaluationLoop:
     jmp EvaluationFailed
 
 
-; ============================================================
-; CONSTANT
-; ============================================================
-
 EvaluateConstant:
 
     mov ecx, evalStackTop
 
 
     cmp ecx, MAX_EVAL_STACK
+
     jae EvaluationFailed
 
 
@@ -2150,16 +2576,13 @@ EvaluateConstant:
     jmp EvaluationNext
 
 
-; ============================================================
-; X
-; ============================================================
-
 EvaluateVariable:
 
     mov ecx, evalStackTop
 
 
     cmp ecx, MAX_EVAL_STACK
+
     jae EvaluationFailed
 
 
@@ -2188,6 +2611,7 @@ EvaluateNeg:
 
 
     cmp ecx, 1
+
     jb EvaluationFailed
 
 
@@ -2216,6 +2640,7 @@ EvaluateSin:
 
 
     cmp ecx, 1
+
     jb EvaluationFailed
 
 
@@ -2244,6 +2669,7 @@ EvaluateCos:
 
 
     cmp ecx, 1
+
     jb EvaluationFailed
 
 
@@ -2272,6 +2698,7 @@ EvaluateTan:
 
 
     cmp ecx, 1
+
     jb EvaluationFailed
 
 
@@ -2284,8 +2711,6 @@ EvaluateTan:
     mov DWORD PTR functionInput, eax
 
 
-    ; sin
-
     fld DWORD PTR functionInput
 
 
@@ -2295,8 +2720,6 @@ EvaluateTan:
     fstp DWORD PTR functionSin
 
 
-    ; cos
-
     fld DWORD PTR functionInput
 
 
@@ -2305,8 +2728,6 @@ EvaluateTan:
 
     fstp DWORD PTR functionCos
 
-
-    ; reject cos close to zero
 
     fld DWORD PTR functionCos
 
@@ -2348,6 +2769,7 @@ EvaluateSqrt:
 
 
     cmp ecx, 1
+
     jb EvaluationFailed
 
 
@@ -2382,15 +2804,7 @@ EvaluateSqrt:
 
 
 ; ============================================================
-; BINARY OPERATOR
-;
-; stack:
-;
-;       ... A B
-;
-; result:
-;
-;       ... RESULT
+; BINARY
 ; ============================================================
 
 EvaluateBinary:
@@ -2402,13 +2816,12 @@ EvaluateBinary:
 
 
     cmp ecx, 2
+
     jb EvaluationFailed
 
 
     sub ecx, 2
 
-
-    ; B
 
     mov edx, DWORD PTR [evalStack + ecx*4 + 4]
 
@@ -2416,19 +2829,13 @@ EvaluateBinary:
     mov DWORD PTR evalOperandB, edx
 
 
-    ; --------------------------------------------------------
-    ; POWER handled separately.
-    ; --------------------------------------------------------
-
     cmp ebx, TOKEN_POW
+
     je ExecutePower
 
 
-    ; --------------------------------------------------------
-    ; Division by zero.
-    ; --------------------------------------------------------
-
     cmp ebx, TOKEN_DIV
+
     jne LoadBinaryA
 
 
@@ -2442,8 +2849,6 @@ EvaluateBinary:
 
 
 LoadBinaryA:
-
-    ; A
 
     fld DWORD PTR [evalStack + ecx*4]
 
@@ -2474,7 +2879,6 @@ ExecuteAdd:
 
     fadd DWORD PTR evalOperandB
 
-
     jmp StoreBinaryResult
 
 
@@ -2482,14 +2886,12 @@ ExecuteSub:
 
     fsub DWORD PTR evalOperandB
 
-
     jmp StoreBinaryResult
 
 
 ExecuteMul:
 
     fmul DWORD PTR evalOperandB
-
 
     jmp StoreBinaryResult
 
@@ -2515,27 +2917,9 @@ StoreBinaryResult:
 
 ; ============================================================
 ; POWER
-;
-; A ^ B
-;
-; Current implementation requires B to be an exact integer
-; between -64 and +64.
-;
-; Examples:
-;
-;     x^2
-;     x^3
-;     x^-2
-;     (x+1)^4
-;
-; This approach works correctly for negative bases.
 ; ============================================================
 
 ExecutePower:
-
-    ; --------------------------------------------------------
-    ; Ensure exponent B is finite.
-    ; --------------------------------------------------------
 
     mov eax, DWORD PTR evalOperandB
 
@@ -2547,27 +2931,15 @@ ExecutePower:
 
 
     cmp edx, 7F800000h
+
     je EvaluationFailed
 
-
-    ; --------------------------------------------------------
-    ; Convert exponent to integer.
-    ; --------------------------------------------------------
 
     fld DWORD PTR evalOperandB
 
 
     fistp DWORD PTR powerExponentInt
 
-
-    ; --------------------------------------------------------
-    ; Convert integer back to float and ensure it exactly
-    ; equals the original exponent.
-    ;
-    ; This rejects:
-    ;
-    ;     x^2.5
-    ; --------------------------------------------------------
 
     fild DWORD PTR powerExponentInt
 
@@ -2584,34 +2956,24 @@ ExecutePower:
     jne EvaluationFailed
 
 
-    ; --------------------------------------------------------
-    ; Limit exponent.
-    ; --------------------------------------------------------
-
     mov eax, powerExponentInt
 
 
     cmp eax, MAX_POWER_ABS
+
     jg EvaluationFailed
 
 
     cmp eax, -MAX_POWER_ABS
+
     jl EvaluationFailed
 
-
-    ; --------------------------------------------------------
-    ; Store base A.
-    ; --------------------------------------------------------
 
     mov eax, DWORD PTR [evalStack + ecx*4]
 
 
     mov DWORD PTR powerBase, eax
 
-
-    ; --------------------------------------------------------
-    ; result = 1
-    ; --------------------------------------------------------
 
     fld DWORD PTR floatOne
 
@@ -2625,27 +2987,16 @@ ExecutePower:
     mov eax, powerExponentInt
 
 
-    ; exponent == 0
-
     test eax, eax
+
     jz PowerFinished
 
-
-    ; exponent > 0
 
     jg PowerPositive
 
 
-; ============================================================
-; NEGATIVE EXPONENT
-;
-; A^-N = 1 / A^N
-; ============================================================
-
     mov powerNegative, 1
 
-
-    ; base cannot be zero for negative exponent
 
     mov edx, DWORD PTR powerBase
 
@@ -2661,12 +3012,11 @@ ExecutePower:
 
 PowerPositive:
 
-    ; EAX = number of multiplications
-
 
 PowerLoop:
 
     test eax, eax
+
     jz PowerMultiplicationFinished
 
 
@@ -2688,10 +3038,9 @@ PowerLoop:
 PowerMultiplicationFinished:
 
     cmp powerNegative, 0
+
     je PowerFinished
 
-
-    ; reciprocal
 
     fld DWORD PTR floatOne
 
@@ -2704,10 +3053,6 @@ PowerMultiplicationFinished:
 
 PowerFinished:
 
-    ; --------------------------------------------------------
-    ; Reject infinity/NaN generated by overflow.
-    ; --------------------------------------------------------
-
     mov eax, DWORD PTR powerResult
 
 
@@ -2718,12 +3063,9 @@ PowerFinished:
 
 
     cmp edx, 7F800000h
+
     je EvaluationFailed
 
-
-    ; --------------------------------------------------------
-    ; Store power result over A.
-    ; --------------------------------------------------------
 
     mov DWORD PTR [evalStack + ecx*4], eax
 
@@ -2737,10 +3079,6 @@ PowerFinished:
     jmp EvaluationNext
 
 
-; ============================================================
-; NEXT RPN TOKEN
-; ============================================================
-
 EvaluationNext:
 
     inc esi
@@ -2749,20 +3087,15 @@ EvaluationNext:
     jmp EvaluationLoop
 
 
-; ============================================================
-; FINISH EVALUATION
-; ============================================================
-
 EvaluationFinished:
 
     cmp evalStackTop, 1
+
     jne EvaluationFailed
 
 
     mov eax, DWORD PTR [evalStack]
 
-
-    ; reject infinity / NaN
 
     mov edx, eax
 
@@ -2771,6 +3104,7 @@ EvaluationFinished:
 
 
     cmp edx, 7F800000h
+
     je EvaluationFailed
 
 
@@ -2804,7 +3138,7 @@ EvaluateCurrentFunction ENDP
 
 
 ; ============================================================
-; APPLY EXPRESSION
+; APPLY USER EXPRESSION
 ; ============================================================
 
 ApplyExpression PROC STDCALL
@@ -2819,6 +3153,7 @@ ApplyExpression PROC STDCALL
 
 
     test eax, eax
+
     jz ApplyExpressionFailed
 
 
@@ -2836,6 +3171,7 @@ ApplyExpression PROC STDCALL
 
     mov eax, 1
 
+
     ret
 
 
@@ -2852,8 +3188,6 @@ ApplyExpressionFailed:
         ADDR expressionText
 
 
-    ; restore last working RPN program
-
     invoke CompileExpression
 
 
@@ -2869,6 +3203,7 @@ ApplyExpressionFailed:
 
     xor eax, eax
 
+
     ret
 
 
@@ -2876,23 +3211,30 @@ ApplyExpression ENDP
 
 
 ; ============================================================
-; UPDATE VIEW
+; UPDATE MATHEMATICAL CAMERA
+;
+; IMPORTANT:
+;
+; Aspect ratio now uses graphH, not the full client height.
 ; ============================================================
 
 UpdateViewState PROC STDCALL
 
     cmp clientW, 0
+
     je UpdateViewDone
 
 
-    cmp clientH, 0
+    cmp graphH, 0
+
     je UpdateViewDone
 
 
     mov eax, clientW
 
 
-    cmp eax, clientH
+    cmp eax, graphH
+
     jae ViewWide
 
 
@@ -2907,7 +3249,7 @@ ViewTall:
     fld DWORD PTR zoomHalfRange
 
 
-    fimul DWORD PTR clientH
+    fimul DWORD PTR graphH
 
 
     fidiv DWORD PTR clientW
@@ -2933,7 +3275,7 @@ ViewWide:
     fimul DWORD PTR clientW
 
 
-    fidiv DWORD PTR clientH
+    fidiv DWORD PTR graphH
 
 
     fstp DWORD PTR viewHalfX
@@ -2941,90 +3283,58 @@ ViewWide:
 
 CalculateViewBounds:
 
-    ; left
-
     fld DWORD PTR centerX
 
-
     fsub DWORD PTR viewHalfX
-
 
     fstp DWORD PTR viewLeft
 
 
-    ; right
-
     fld DWORD PTR centerX
 
-
     fadd DWORD PTR viewHalfX
-
 
     fstp DWORD PTR viewRight
 
 
-    ; bottom
-
     fld DWORD PTR centerY
 
-
     fsub DWORD PTR viewHalfY
-
 
     fstp DWORD PTR viewBottom
 
 
-    ; top
-
     fld DWORD PTR centerY
 
-
     fadd DWORD PTR viewHalfY
-
 
     fstp DWORD PTR viewTop
 
 
-    ; scale X
-
     fld DWORD PTR floatOne
 
-
     fdiv DWORD PTR viewHalfX
-
 
     fstp DWORD PTR viewScaleX
 
 
-    ; scale Y
-
     fld DWORD PTR floatOne
 
-
     fdiv DWORD PTR viewHalfY
-
 
     fstp DWORD PTR viewScaleY
 
 
-    ; translate X
-
     fld DWORD PTR centerX
 
-
     fchs
-
 
     fstp DWORD PTR viewTranslateX
 
 
-    ; translate Y
-
     fld DWORD PTR centerY
 
-
     fchs
-
 
     fstp DWORD PTR viewTranslateY
 
@@ -3039,15 +3349,19 @@ UpdateViewState ENDP
 
 ; ============================================================
 ; OPENGL VIEWPORT
+;
+; Bottom part of the client is now exclusively the graph.
 ; ============================================================
 
 SetupViewport PROC STDCALL
 
     cmp clientW, 0
+
     je SetupViewportDone
 
 
-    cmp clientH, 0
+    cmp graphH, 0
+
     je SetupViewportDone
 
 
@@ -3055,7 +3369,7 @@ SetupViewport PROC STDCALL
         0, \
         0, \
         clientW, \
-        clientH
+        graphH
 
 
 SetupViewportDone:
@@ -3123,6 +3437,7 @@ DrawGrid PROC STDCALL
 GridLoop:
 
     cmp gridIndex, 0
+
     je GridNext
 
 
@@ -3131,8 +3446,6 @@ GridLoop:
 
     fstp DWORD PTR gridCoord
 
-
-    ; vertical
 
     invoke glVertex2f, \
         DWORD PTR gridCoord, \
@@ -3143,8 +3456,6 @@ GridLoop:
         DWORD PTR gridCoord, \
         DWORD PTR viewTop
 
-
-    ; horizontal
 
     invoke glVertex2f, \
         DWORD PTR viewLeft, \
@@ -3162,6 +3473,7 @@ GridNext:
 
 
     cmp gridIndex, GRID_MAX
+
     jle GridLoop
 
 
@@ -3189,8 +3501,6 @@ DrawAxes PROC STDCALL
     invoke glBegin, GL_LINES
 
 
-    ; X axis
-
     invoke glVertex2f, \
         DWORD PTR viewLeft, \
         DWORD PTR floatZero
@@ -3200,8 +3510,6 @@ DrawAxes PROC STDCALL
         DWORD PTR viewRight, \
         DWORD PTR floatZero
 
-
-    ; Y axis
 
     invoke glVertex2f, \
         DWORD PTR floatZero, \
@@ -3282,14 +3590,12 @@ GraphLoop:
 
 
     test eax, eax
+
     jz InvalidGraphPoint
 
 
-; ============================================================
-; VALID SAMPLE
-; ============================================================
-
     cmp graphSegmentActive, 0
+
     jne PlotGraphPoint
 
 
@@ -3309,13 +3615,10 @@ PlotGraphPoint:
     jmp AdvanceGraph
 
 
-; ============================================================
-; INVALID SAMPLE
-; ============================================================
-
 InvalidGraphPoint:
 
     cmp graphSegmentActive, 0
+
     je AdvanceGraph
 
 
@@ -3324,10 +3627,6 @@ InvalidGraphPoint:
 
     mov graphSegmentActive, 0
 
-
-; ============================================================
-; NEXT X
-; ============================================================
 
 AdvanceGraph:
 
@@ -3346,11 +3645,8 @@ AdvanceGraph:
     jnz GraphLoop
 
 
-; ============================================================
-; CLOSE FINAL SEGMENT
-; ============================================================
-
     cmp graphSegmentActive, 0
+
     je DrawFunctionDone
 
 
@@ -3372,20 +3668,66 @@ DrawFunction ENDP
 
 
 ; ============================================================
-; MOUSE PIXEL -> MATHEMATICAL COORDINATE
+; MOUSE PIXEL -> GRAPH COORDINATE
+;
+; Windows mouse Y:
+;
+;    0
+;    ↓
+; ┌───────────────┐
+; │ UI area       │ 72px
+; ├───────────────┤
+; │               │
+; │ graph         │
+; │               │
+; └───────────────┘
+;
+; Mouse coordinates are converted relative to the graph area.
 ; ============================================================
 
 UpdateMouseWorld PROC STDCALL
 
+    cmp mouseActive, 0
+
+    je UpdateMouseDone
+
+
     cmp clientW, 0
+
     je UpdateMouseDone
 
 
-    cmp clientH, 0
+    cmp graphH, 0
+
     je UpdateMouseDone
 
 
+    ; --------------------------------------------------------
+    ; Mouse must be below top panel.
+    ; --------------------------------------------------------
+
+    mov eax, mousePixelY
+
+
+    cmp eax, TOP_PANEL_HEIGHT
+
+    jb MouseOutsideGraph
+
+
+    sub eax, TOP_PANEL_HEIGHT
+
+
+    mov mouseGraphY, eax
+
+
+    cmp eax, graphH
+
+    ja MouseOutsideGraph
+
+
+    ; --------------------------------------------------------
     ; X range
+    ; --------------------------------------------------------
 
     fld DWORD PTR viewRight
 
@@ -3396,7 +3738,9 @@ UpdateMouseWorld PROC STDCALL
     fstp DWORD PTR mouseRangeX
 
 
+    ; --------------------------------------------------------
     ; world X
+    ; --------------------------------------------------------
 
     fild DWORD PTR mousePixelX
 
@@ -3413,7 +3757,9 @@ UpdateMouseWorld PROC STDCALL
     fstp DWORD PTR mouseWorldX
 
 
+    ; --------------------------------------------------------
     ; Y range
+    ; --------------------------------------------------------
 
     fld DWORD PTR viewTop
 
@@ -3424,12 +3770,14 @@ UpdateMouseWorld PROC STDCALL
     fstp DWORD PTR mouseRangeY
 
 
-    ; Y offset
+    ; --------------------------------------------------------
+    ; Y offset in graph
+    ; --------------------------------------------------------
 
-    fild DWORD PTR mousePixelY
+    fild DWORD PTR mouseGraphY
 
 
-    fidiv DWORD PTR clientH
+    fidiv DWORD PTR graphH
 
 
     fmul DWORD PTR mouseRangeY
@@ -3438,7 +3786,9 @@ UpdateMouseWorld PROC STDCALL
     fstp DWORD PTR mouseOffsetY
 
 
+    ; --------------------------------------------------------
     ; world Y
+    ; --------------------------------------------------------
 
     fld DWORD PTR viewTop
 
@@ -3447,6 +3797,14 @@ UpdateMouseWorld PROC STDCALL
 
 
     fstp DWORD PTR mouseWorldY
+
+
+    ret
+
+
+MouseOutsideGraph:
+
+    mov mouseActive, 0
 
 
 UpdateMouseDone:
@@ -3464,6 +3822,7 @@ UpdateMouseWorld ENDP
 DrawCrosshair PROC STDCALL
 
     cmp mouseActive, 0
+
     je CrosshairDone
 
 
@@ -3476,8 +3835,6 @@ DrawCrosshair PROC STDCALL
     invoke glBegin, GL_LINES
 
 
-    ; vertical
-
     invoke glVertex2f, \
         DWORD PTR mouseWorldX, \
         DWORD PTR viewBottom
@@ -3487,8 +3844,6 @@ DrawCrosshair PROC STDCALL
         DWORD PTR mouseWorldX, \
         DWORD PTR viewTop
 
-
-    ; horizontal
 
     invoke glVertex2f, \
         DWORD PTR viewLeft, \
@@ -3518,14 +3873,17 @@ DrawCrosshair ENDP
 RenderScene PROC STDCALL
 
     cmp hGLRC, 0
+
     je RenderDone
 
 
     cmp clientW, 0
+
     je RenderDone
 
 
-    cmp clientH, 0
+    cmp graphH, 0
+
     je RenderDone
 
 
@@ -3559,7 +3917,7 @@ RenderScene ENDP
 
 
 ; ============================================================
-; PAN STEP
+; PAN
 ; ============================================================
 
 CalculatePanStep PROC STDCALL
@@ -3588,10 +3946,6 @@ CalculatePanStep PROC STDCALL
 CalculatePanStep ENDP
 
 
-; ============================================================
-; PAN
-; ============================================================
-
 PanLeft PROC STDCALL
 
     invoke CalculatePanStep
@@ -3609,6 +3963,8 @@ PanLeft PROC STDCALL
     invoke UpdateViewState
 
     invoke UpdateMouseWorld
+
+    invoke UpdateStatusText
 
     invoke RenderScene
 
@@ -3637,6 +3993,8 @@ PanRight PROC STDCALL
 
     invoke UpdateMouseWorld
 
+    invoke UpdateStatusText
+
     invoke RenderScene
 
 
@@ -3663,6 +4021,8 @@ PanUp PROC STDCALL
     invoke UpdateViewState
 
     invoke UpdateMouseWorld
+
+    invoke UpdateStatusText
 
     invoke RenderScene
 
@@ -3691,6 +4051,8 @@ PanDown PROC STDCALL
 
     invoke UpdateMouseWorld
 
+    invoke UpdateStatusText
+
     invoke RenderScene
 
 
@@ -3701,7 +4063,7 @@ PanDown ENDP
 
 
 ; ============================================================
-; ZOOM IN
+; ZOOM
 ; ============================================================
 
 ZoomIn PROC STDCALL
@@ -3753,6 +4115,8 @@ ZoomInApply:
 
     invoke UpdateMouseWorld
 
+    invoke UpdateStatusText
+
     invoke RenderScene
 
 
@@ -3761,10 +4125,6 @@ ZoomInApply:
 
 ZoomIn ENDP
 
-
-; ============================================================
-; ZOOM OUT
-; ============================================================
 
 ZoomOut PROC STDCALL
 
@@ -3815,6 +4175,8 @@ ZoomOutApply:
 
     invoke UpdateMouseWorld
 
+    invoke UpdateStatusText
+
     invoke RenderScene
 
 
@@ -3825,7 +4187,7 @@ ZoomOut ENDP
 
 
 ; ============================================================
-; RESET VIEW
+; RESET
 ; ============================================================
 
 ResetView PROC STDCALL
@@ -3851,6 +4213,8 @@ ResetView PROC STDCALL
     invoke UpdateViewState
 
     invoke UpdateMouseWorld
+
+    invoke UpdateStatusText
 
     invoke RenderScene
 
@@ -3916,56 +4280,48 @@ HandleKeyboard PROC STDCALL keyCode:DWORD
 KeyUp:
 
     invoke PanUp
-
     ret
 
 
 KeyDown:
 
     invoke PanDown
-
     ret
 
 
 KeyLeft:
 
     invoke PanLeft
-
     ret
 
 
 KeyRight:
 
     invoke PanRight
-
     ret
 
 
 KeyZoomIn:
 
     invoke ZoomIn
-
     ret
 
 
 KeyZoomOut:
 
     invoke ZoomOut
-
     ret
 
 
 KeyReset:
 
     invoke ResetView
-
     ret
 
 
 KeyExit:
 
     invoke DestroyWindow, hMainWnd
-
     ret
 
 
@@ -3973,7 +4329,7 @@ HandleKeyboard ENDP
 
 
 ; ============================================================
-; EDIT CONTROL PROCEDURE
+; EDIT CONTROL
 ; ============================================================
 
 ExpressionEditProc PROC STDCALL \
@@ -3984,14 +4340,17 @@ ExpressionEditProc PROC STDCALL \
 
 
     cmp uMsg, WM_KEYDOWN
+
     jne EditCheckChar
 
 
     cmp wParam, VK_RETURN
+
     je EditEnter
 
 
     cmp wParam, VK_ESCAPE
+
     je EditEscape
 
 
@@ -4001,10 +4360,12 @@ ExpressionEditProc PROC STDCALL \
 EditCheckChar:
 
     cmp uMsg, WM_CHAR
+
     jne EditDefault
 
 
     cmp wParam, VK_RETURN
+
     je EditSwallow
 
 
@@ -4018,6 +4379,7 @@ EditEnter:
 
     xor eax, eax
 
+
     ret
 
 
@@ -4028,12 +4390,14 @@ EditEscape:
 
     xor eax, eax
 
+
     ret
 
 
 EditSwallow:
 
     xor eax, eax
+
 
     ret
 
@@ -4055,10 +4419,14 @@ ExpressionEditProc ENDP
 
 
 ; ============================================================
-; CREATE EXPRESSION INPUT
+; CREATE UI CONTROLS
 ; ============================================================
 
-CreateExpressionInput PROC STDCALL parentWnd:DWORD
+CreateInterface PROC STDCALL parentWnd:DWORD
+
+    ; --------------------------------------------------------
+    ; Expression input
+    ; --------------------------------------------------------
 
     invoke CreateWindowExA, \
         WS_EX_CLIENTEDGE, \
@@ -4071,15 +4439,16 @@ CreateExpressionInput PROC STDCALL parentWnd:DWORD
         12, \
         10, \
         520, \
-        28, \
+        26, \
         parentWnd, \
-        1001, \
+        EDIT_ID, \
         hInstance, \
         0
 
 
     test eax, eax
-    jz CreateInputFailed
+
+    jz CreateInterfaceFailed
 
 
     mov hExpressionEdit, eax
@@ -4092,25 +4461,55 @@ CreateExpressionInput PROC STDCALL parentWnd:DWORD
 
 
     test eax, eax
-    jz CreateInputFailed
+
+    jz CreateInterfaceFailed
 
 
     mov oldEditProc, eax
 
 
+    ; --------------------------------------------------------
+    ; Status text
+    ; --------------------------------------------------------
+
+    invoke CreateWindowExA, \
+        0, \
+        ADDR staticClassName, \
+        ADDR statusText, \
+        WS_CHILD OR WS_VISIBLE, \
+        12, \
+        43, \
+        950, \
+        22, \
+        parentWnd, \
+        STATUS_ID, \
+        hInstance, \
+        0
+
+
+    test eax, eax
+
+    jz CreateInterfaceFailed
+
+
+    mov hStatus, eax
+
+
     mov eax, 1
+
 
     ret
 
 
-CreateInputFailed:
+CreateInterfaceFailed:
 
     xor eax, eax
 
+
     ret
 
 
-CreateExpressionInput ENDP
+CreateInterface ENDP
 
 
 ; ============================================================
@@ -4126,15 +4525,16 @@ InitializeOpenGL PROC STDCALL targetWnd:DWORD
 
 
     test eax, eax
+
     jz OpenGLInitFailed
 
 
     mov hDC, eax
 
 
-; ============================================================
-; ZERO PIXEL FORMAT DESCRIPTOR
-; ============================================================
+    ; --------------------------------------------------------
+    ; Zero PFD
+    ; --------------------------------------------------------
 
     lea edi, pfd
 
@@ -4151,9 +4551,9 @@ InitializeOpenGL PROC STDCALL targetWnd:DWORD
     rep stosd
 
 
-; ============================================================
-; PIXEL FORMAT
-; ============================================================
+    ; --------------------------------------------------------
+    ; Pixel format
+    ; --------------------------------------------------------
 
     mov pfd.nSize, SIZEOF PIXELFORMATDESCRIPTOR
 
@@ -4185,6 +4585,7 @@ InitializeOpenGL PROC STDCALL targetWnd:DWORD
 
 
     test eax, eax
+
     jz OpenGLInitFailed
 
 
@@ -4198,17 +4599,19 @@ InitializeOpenGL PROC STDCALL targetWnd:DWORD
 
 
     test eax, eax
+
     jz OpenGLInitFailed
 
 
-; ============================================================
-; OPENGL CONTEXT
-; ============================================================
+    ; --------------------------------------------------------
+    ; WGL
+    ; --------------------------------------------------------
 
     invoke wglCreateContext, hDC
 
 
     test eax, eax
+
     jz OpenGLInitFailed
 
 
@@ -4221,12 +4624,9 @@ InitializeOpenGL PROC STDCALL targetWnd:DWORD
 
 
     test eax, eax
+
     jz OpenGLInitFailed
 
-
-; ============================================================
-; BACKGROUND
-; ============================================================
 
     invoke glClearColor, \
         DWORD PTR clearRed, \
@@ -4235,9 +4635,9 @@ InitializeOpenGL PROC STDCALL targetWnd:DWORD
         DWORD PTR clearAlpha
 
 
-; ============================================================
-; CLIENT SIZE
-; ============================================================
+    ; --------------------------------------------------------
+    ; Client dimensions
+    ; --------------------------------------------------------
 
     invoke GetClientRect, \
         targetWnd, \
@@ -4262,6 +4662,27 @@ InitializeOpenGL PROC STDCALL targetWnd:DWORD
     mov clientH, eax
 
 
+    ; graphH = clientH - top panel
+
+    sub eax, TOP_PANEL_HEIGHT
+
+
+    jle InitialGraphHeightZero
+
+
+    mov graphH, eax
+
+
+    jmp InitialGraphHeightReady
+
+
+InitialGraphHeightZero:
+
+    mov graphH, 0
+
+
+InitialGraphHeightReady:
+
     invoke UpdateViewState
 
 
@@ -4273,6 +4694,7 @@ InitializeOpenGL PROC STDCALL targetWnd:DWORD
 
     mov eax, 1
 
+
     ret
 
 
@@ -4282,6 +4704,7 @@ OpenGLInitFailed:
 
 
     xor eax, eax
+
 
     ret
 
@@ -4296,6 +4719,7 @@ InitializeOpenGL ENDP
 CleanupOpenGL PROC STDCALL targetWnd:DWORD
 
     cmp hGLRC, 0
+
     je SkipContextCleanup
 
 
@@ -4311,6 +4735,7 @@ CleanupOpenGL PROC STDCALL targetWnd:DWORD
 SkipContextCleanup:
 
     cmp hDC, 0
+
     je CleanupDone
 
 
@@ -4395,6 +4820,7 @@ WindowPaint:
 
     xor eax, eax
 
+
     ret
 
 
@@ -4404,7 +4830,7 @@ WindowPaint:
 
 WindowSize:
 
-    ; width
+    ; Client width
 
     mov eax, lParam
 
@@ -4415,7 +4841,7 @@ WindowSize:
     mov clientW, ecx
 
 
-    ; height
+    ; Client height
 
     mov eax, lParam
 
@@ -4429,7 +4855,32 @@ WindowSize:
     mov clientH, ecx
 
 
+    ; graphH = clientH - 72
+
+    mov eax, clientH
+
+
+    sub eax, TOP_PANEL_HEIGHT
+
+
+    jle ResizeGraphZero
+
+
+    mov graphH, eax
+
+
+    jmp ResizeGraphReady
+
+
+ResizeGraphZero:
+
+    mov graphH, 0
+
+
+ResizeGraphReady:
+
     cmp hGLRC, 0
+
     je WindowSizeDone
 
 
@@ -4442,6 +4893,9 @@ WindowSize:
     invoke UpdateMouseWorld
 
 
+    invoke UpdateStatusText
+
+
     invoke RenderScene
 
 
@@ -4449,11 +4903,12 @@ WindowSizeDone:
 
     xor eax, eax
 
+
     ret
 
 
 ; ============================================================
-; MOUSE
+; MOUSE MOVE
 ; ============================================================
 
 WindowMouseMove:
@@ -4489,10 +4944,14 @@ WindowMouseMove:
     invoke UpdateMouseWorld
 
 
+    invoke UpdateStatusText
+
+
     invoke RenderScene
 
 
     xor eax, eax
+
 
     ret
 
@@ -4503,10 +4962,21 @@ WindowMouseMove:
 
 WindowMouseClick:
 
+    mov eax, mousePixelY
+
+
+    cmp eax, TOP_PANEL_HEIGHT
+
+    jb WindowClickDone
+
+
     invoke SetFocus, hWnd
 
 
+WindowClickDone:
+
     xor eax, eax
+
 
     ret
 
@@ -4522,6 +4992,7 @@ WindowKeyDown:
 
     xor eax, eax
 
+
     ret
 
 
@@ -4532,6 +5003,7 @@ WindowKeyDown:
 WindowBackground:
 
     mov eax, 1
+
 
     ret
 
@@ -4550,6 +5022,7 @@ WindowDestroyed:
 
     xor eax, eax
 
+
     ret
 
 
@@ -4562,12 +5035,8 @@ WindowProc ENDP
 
 start:
 
-    ; x87
-
     finit
 
-
-    ; initial handles
 
     mov hDC, 0
 
@@ -4575,7 +5044,10 @@ start:
 
     mov hMainWnd, 0
 
+
     mov hExpressionEdit, 0
+
+    mov hStatus, 0
 
     mov oldEditProc, 0
 
@@ -4583,6 +5055,8 @@ start:
     mov clientW, 0
 
     mov clientH, 0
+
+    mov graphH, 0
 
 
     mov mouseActive, 0
@@ -4600,6 +5074,7 @@ start:
 
 
     test eax, eax
+
     jz InitialExpressionFailed
 
 
@@ -4679,6 +5154,7 @@ start:
 
 
     test eax, eax
+
     jz RegistrationFailed
 
 
@@ -4695,8 +5171,8 @@ start:
             WS_CLIPSIBLINGS, \
         CW_USEDEFAULT, \
         CW_USEDEFAULT, \
-        1024, \
-        768, \
+        1100, \
+        800, \
         0, \
         0, \
         hInstance, \
@@ -4704,6 +5180,7 @@ start:
 
 
     test eax, eax
+
     jz WindowCreationFailed
 
 
@@ -4711,14 +5188,15 @@ start:
 
 
 ; ============================================================
-; EXPRESSION INPUT
+; CREATE INTERFACE
 ; ============================================================
 
-    invoke CreateExpressionInput, hMainWnd
+    invoke CreateInterface, hMainWnd
 
 
     test eax, eax
-    jz ExpressionInputFailed
+
+    jz InterfaceCreationFailed
 
 
 ; ============================================================
@@ -4729,7 +5207,15 @@ start:
 
 
     test eax, eax
+
     jz OpenGLCreationFailed
+
+
+; ============================================================
+; INITIAL STATUS
+; ============================================================
+
+    invoke UpdateStatusText
 
 
 ; ============================================================
@@ -4764,10 +5250,12 @@ MessageLoop:
 
 
     cmp eax, 0
+
     je ProgramFinished
 
 
     cmp eax, -1
+
     je MessageLoopFailed
 
 
@@ -4783,7 +5271,7 @@ MessageLoop:
 
 
 ; ============================================================
-; NORMAL EXIT
+; EXIT
 ; ============================================================
 
 ProgramFinished:
@@ -4793,10 +5281,6 @@ ProgramFinished:
 
     invoke ExitProcess, eax
 
-
-; ============================================================
-; ERRORS
-; ============================================================
 
 InitialExpressionFailed:
 
@@ -4813,7 +5297,7 @@ WindowCreationFailed:
     invoke ExitProcess, 2
 
 
-ExpressionInputFailed:
+InterfaceCreationFailed:
 
     invoke ExitProcess, 6
 
