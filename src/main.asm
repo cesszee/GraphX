@@ -1,11 +1,14 @@
 ; ============================================================
-; GraphX - Step 5
+; GraphX - Step 6
 ; 32-bit MASM + Win32 + OpenGL
 ;
-; Goal:
-;   Create a Win32 window
-;   Create an OpenGL rendering context
-;   Clear the screen with OpenGL
+; Features:
+;   - Win32 application window
+;   - OpenGL rendering context
+;   - Resizable OpenGL viewport
+;   - Mathematical coordinates
+;   - X axis
+;   - Y axis
 ;
 ; Assemble:
 ;   ml /nologo /c /coff main.asm
@@ -22,7 +25,7 @@ option casemap:none
 
 
 ; ============================================================
-; Win32 API
+; Win32 API Prototypes
 ; ============================================================
 
 GetModuleHandleA PROTO STDCALL :DWORD
@@ -31,7 +34,7 @@ ExitProcess      PROTO STDCALL :DWORD
 LoadCursorA      PROTO STDCALL :DWORD, :DWORD
 RegisterClassExA PROTO STDCALL :DWORD
 
-CreateWindowExA  PROTO STDCALL \
+CreateWindowExA PROTO STDCALL \
     :DWORD, :DWORD, :DWORD, :DWORD, \
     :DWORD, :DWORD, :DWORD, :DWORD, \
     :DWORD, :DWORD, :DWORD, :DWORD
@@ -45,22 +48,26 @@ GetMessageA      PROTO STDCALL \
 TranslateMessage PROTO STDCALL :DWORD
 DispatchMessageA PROTO STDCALL :DWORD
 
-DefWindowProcA   PROTO STDCALL \
+DefWindowProcA PROTO STDCALL \
     :DWORD, :DWORD, :DWORD, :DWORD
 
-PostQuitMessage  PROTO STDCALL :DWORD
-ValidateRect     PROTO STDCALL :DWORD, :DWORD
+PostQuitMessage PROTO STDCALL :DWORD
 
-GetDC            PROTO STDCALL :DWORD
-ReleaseDC        PROTO STDCALL :DWORD, :DWORD
+ValidateRect PROTO STDCALL :DWORD, :DWORD
+
+GetDC      PROTO STDCALL :DWORD
+ReleaseDC  PROTO STDCALL :DWORD, :DWORD
+
+GetClientRect PROTO STDCALL :DWORD, :DWORD
 
 ChoosePixelFormat PROTO STDCALL :DWORD, :DWORD
 SetPixelFormat    PROTO STDCALL :DWORD, :DWORD, :DWORD
-SwapBuffers       PROTO STDCALL :DWORD
+
+SwapBuffers PROTO STDCALL :DWORD
 
 
 ; ============================================================
-; WGL API
+; WGL Prototypes
 ; ============================================================
 
 wglCreateContext PROTO STDCALL :DWORD
@@ -69,61 +76,85 @@ wglDeleteContext PROTO STDCALL :DWORD
 
 
 ; ============================================================
-; OpenGL 1.x API
-;
-; DWORD is used for the floating-point parameters here because
-; each GLfloat occupies 32 bits in the 32-bit calling ABI.
+; OpenGL Prototypes
 ; ============================================================
 
-glClearColor PROTO STDCALL :DWORD, :DWORD, :DWORD, :DWORD
-glClear      PROTO STDCALL :DWORD
+glClearColor PROTO STDCALL \
+    :DWORD, :DWORD, :DWORD, :DWORD
+
+glClear PROTO STDCALL :DWORD
+
+glViewport PROTO STDCALL \
+    :DWORD, :DWORD, :DWORD, :DWORD
+
+glMatrixMode PROTO STDCALL :DWORD
+
+glLoadIdentity PROTO STDCALL
+
+glScalef PROTO STDCALL \
+    :DWORD, :DWORD, :DWORD
+
+glColor3f PROTO STDCALL \
+    :DWORD, :DWORD, :DWORD
+
+glBegin PROTO STDCALL :DWORD
+
+glEnd PROTO STDCALL
+
+glVertex2f PROTO STDCALL \
+    :DWORD, :DWORD
 
 
 ; ============================================================
-; Win32 constants
+; Win32 Constants
 ; ============================================================
 
-CS_VREDRAW          EQU 0001h
-CS_HREDRAW          EQU 0002h
-CS_OWNDC            EQU 0020h
+CS_VREDRAW      EQU 0001h
+CS_HREDRAW      EQU 0002h
+CS_OWNDC        EQU 0020h
 
-WM_DESTROY          EQU 0002h
-WM_PAINT            EQU 000Fh
-WM_ERASEBKGND       EQU 0014h
-WM_SIZE             EQU 0005h
+WM_DESTROY      EQU 0002h
+WM_SIZE         EQU 0005h
+WM_PAINT        EQU 000Fh
+WM_ERASEBKGND   EQU 0014h
 
 WS_OVERLAPPEDWINDOW EQU 00CF0000h
 WS_CLIPCHILDREN     EQU 02000000h
 WS_CLIPSIBLINGS     EQU 04000000h
 
-CW_USEDEFAULT       EQU 80000000h
+CW_USEDEFAULT EQU 80000000h
 
-SW_SHOWNORMAL       EQU 1
+SW_SHOWNORMAL EQU 1
 
-IDC_ARROW           EQU 32512
-
-
-; ============================================================
-; Pixel format constants
-; ============================================================
-
-PFD_DOUBLEBUFFER    EQU 00000001h
-PFD_DRAW_TO_WINDOW  EQU 00000004h
-PFD_SUPPORT_OPENGL  EQU 00000020h
-
-PFD_TYPE_RGBA       EQU 0
-PFD_MAIN_PLANE      EQU 0
+IDC_ARROW EQU 32512
 
 
 ; ============================================================
-; OpenGL constants
+; Pixel Format Constants
+; ============================================================
+
+PFD_DOUBLEBUFFER   EQU 00000001h
+PFD_DRAW_TO_WINDOW EQU 00000004h
+PFD_SUPPORT_OPENGL EQU 00000020h
+
+PFD_TYPE_RGBA EQU 0
+PFD_MAIN_PLANE EQU 0
+
+
+; ============================================================
+; OpenGL Constants
 ; ============================================================
 
 GL_COLOR_BUFFER_BIT EQU 00004000h
 
+GL_LINES EQU 0001h
+
+GL_MODELVIEW  EQU 1700h
+GL_PROJECTION EQU 1701h
+
 
 ; ============================================================
-; WNDCLASSEXA
+; Structures
 ; ============================================================
 
 WNDCLASSEX STRUCT 4
@@ -146,30 +177,29 @@ WNDCLASSEX STRUCT 4
 WNDCLASSEX ENDS
 
 
-; ============================================================
-; MSG
-; ============================================================
-
 MSG STRUCT 4
 
-    hwnd            DWORD ?
-    message         DWORD ?
-    wParam          DWORD ?
-    lParam          DWORD ?
-    time            DWORD ?
+    hwnd     DWORD ?
+    message  DWORD ?
+    wParam   DWORD ?
+    lParam   DWORD ?
+    time     DWORD ?
 
-    ptX             DWORD ?
-    ptY             DWORD ?
+    ptX      DWORD ?
+    ptY      DWORD ?
 
 MSG ENDS
 
 
-; ============================================================
-; PIXELFORMATDESCRIPTOR
-;
-; Must be exactly 40 bytes.
-; STRUCT 1 prevents MASM from inserting unwanted padding.
-; ============================================================
+RECT STRUCT 4
+
+    left   DWORD ?
+    top    DWORD ?
+    right  DWORD ?
+    bottom DWORD ?
+
+RECT ENDS
+
 
 PIXELFORMATDESCRIPTOR STRUCT 1
 
@@ -214,22 +244,27 @@ PIXELFORMATDESCRIPTOR ENDS
 
 
 ; ============================================================
-; Initialized data
+; Initialized Data
 ; ============================================================
 
 .data
 
+
+; ------------------------------------------------------------
+; Window information
+; ------------------------------------------------------------
+
 className db "GraphXWindowClass",0
 
 windowTitle db \
-    "GraphX - MASM + OpenGL Mathematical Visualization",0
+    "GraphX - Mathematical Visualization System",0
 
 
-; ------------------------------------------------------------
-; OpenGL clear color
-;
-; Dark blue/black background
-; ------------------------------------------------------------
+; ============================================================
+; OpenGL colors
+; ============================================================
+
+; Dark background
 
 clearRed   REAL4 0.04
 clearGreen REAL4 0.06
@@ -237,23 +272,79 @@ clearBlue  REAL4 0.10
 clearAlpha REAL4 1.0
 
 
+; ------------------------------------------------------------
+; Axis color
+; ------------------------------------------------------------
+
+axisRed   REAL4 0.90
+axisGreen REAL4 0.90
+axisBlue  REAL4 0.90
+
+
 ; ============================================================
-; Uninitialized data
+; Mathematical constants
+; ============================================================
+
+mathZero REAL4 0.0
+
+mathMin REAL4 -10.0
+mathMax REAL4  10.0
+
+
+; ------------------------------------------------------------
+; Projection scaling
+;
+; Mathematical coordinates:
+;
+;    -10 ... +10
+;
+; OpenGL coordinates:
+;
+;    -1 ... +1
+;
+; Therefore:
+;
+;    1 / 10 = 0.1
+; ------------------------------------------------------------
+
+mathScaleX REAL4 0.1
+mathScaleY REAL4 0.1
+mathScaleZ REAL4 1.0
+
+
+; ============================================================
+; Uninitialized Data
 ; ============================================================
 
 .data?
 
+
 hInstance DWORD ?
 hMainWnd  DWORD ?
 
-hDC       DWORD ?
-hGLRC     DWORD ?
+hDC   DWORD ?
+hGLRC DWORD ?
 
 pixelFormat DWORD ?
 
+
+; ------------------------------------------------------------
+; Current OpenGL viewport size
+; ------------------------------------------------------------
+
+clientW DWORD ?
+clientH DWORD ?
+
+
+; ------------------------------------------------------------
+; Structures
+; ------------------------------------------------------------
+
 windowClass WNDCLASSEX <>
 messageData MSG <>
-pfd         PIXELFORMATDESCRIPTOR <>
+clientRect  RECT <>
+
+pfd PIXELFORMATDESCRIPTOR <>
 
 
 ; ============================================================
@@ -264,24 +355,231 @@ pfd         PIXELFORMATDESCRIPTOR <>
 
 
 ; ============================================================
-; RenderScene
+; SetupViewport
 ;
-; For Step 5 we only clear the OpenGL color buffer.
+; Configures OpenGL viewport whenever the GraphX window
+; changes size.
 ; ============================================================
 
-RenderScene PROC STDCALL
+SetupViewport PROC
 
-    ; No rendering context yet?
+    ; Don't attempt rendering if minimized.
+
+    cmp clientW, 0
+    je SetupViewportFinished
+
+    cmp clientH, 0
+    je SetupViewportFinished
+
+
+    ; --------------------------------------------------------
+    ; Tell OpenGL how large the drawing area is.
+    ; --------------------------------------------------------
+
+    invoke glViewport, \
+        0,              \
+        0,              \
+        clientW,        \
+        clientH
+
+
+SetupViewportFinished:
+
+    ret
+
+SetupViewport ENDP
+
+
+; ============================================================
+; SetupProjection
+;
+; Establishes GraphX mathematical coordinates.
+;
+; We begin with OpenGL identity projection:
+;
+;       -1 .. +1
+;
+; Then scale coordinates by 0.1:
+;
+;       -10 .. +10
+;
+; Therefore:
+;
+;       x = -10 -> -1
+;       x =  0  ->  0
+;       x = +10 -> +1
+; ============================================================
+
+SetupProjection PROC
+
+    ; --------------------------------------------------------
+    ; Projection matrix
+    ; --------------------------------------------------------
+
+    invoke glMatrixMode, GL_PROJECTION
+
+    invoke glLoadIdentity
+
+
+    ; --------------------------------------------------------
+    ; Map GraphX mathematical coordinates into OpenGL NDC.
+    ; --------------------------------------------------------
+
+    invoke glScalef, \
+        DWORD PTR mathScaleX, \
+        DWORD PTR mathScaleY, \
+        DWORD PTR mathScaleZ
+
+
+    ; --------------------------------------------------------
+    ; Return to model-view matrix.
+    ; --------------------------------------------------------
+
+    invoke glMatrixMode, GL_MODELVIEW
+
+    invoke glLoadIdentity
+
+    ret
+
+SetupProjection ENDP
+
+
+; ============================================================
+; DrawAxes
+;
+; Draw:
+;
+;                   +Y
+;                    |
+;                    |
+;                    |
+;        -X ----------+---------- +X
+;                    |
+;                    |
+;                    |
+;                   -Y
+;
+; Mathematical range:
+;
+;       X = -10 ... +10
+;       Y = -10 ... +10
+; ============================================================
+
+DrawAxes PROC
+
+    ; --------------------------------------------------------
+    ; Axis color
+    ; --------------------------------------------------------
+
+    invoke glColor3f, \
+        DWORD PTR axisRed, \
+        DWORD PTR axisGreen, \
+        DWORD PTR axisBlue
+
+
+    ; --------------------------------------------------------
+    ; Start line rendering
+    ; --------------------------------------------------------
+
+    invoke glBegin, GL_LINES
+
+
+    ; ========================================================
+    ; X AXIS
+    ;
+    ; (-10, 0) -------- (10, 0)
+    ; ========================================================
+
+    invoke glVertex2f, \
+        DWORD PTR mathMin, \
+        DWORD PTR mathZero
+
+    invoke glVertex2f, \
+        DWORD PTR mathMax, \
+        DWORD PTR mathZero
+
+
+    ; ========================================================
+    ; Y AXIS
+    ;
+    ; (0, -10)
+    ;     |
+    ;     |
+    ; (0, 10)
+    ; ========================================================
+
+    invoke glVertex2f, \
+        DWORD PTR mathZero, \
+        DWORD PTR mathMin
+
+    invoke glVertex2f, \
+        DWORD PTR mathZero, \
+        DWORD PTR mathMax
+
+
+    invoke glEnd
+
+    ret
+
+DrawAxes ENDP
+
+
+; ============================================================
+; RenderScene
+;
+; Main OpenGL renderer.
+; ============================================================
+
+RenderScene PROC
+
+    ; --------------------------------------------------------
+    ; Is OpenGL initialized?
+    ; --------------------------------------------------------
+
     cmp hGLRC, 0
-    je RenderDone
+    je RenderFinished
 
-    ; Clear the OpenGL color buffer.
+
+    ; --------------------------------------------------------
+    ; Is the window minimized?
+    ; --------------------------------------------------------
+
+    cmp clientW, 0
+    je RenderFinished
+
+    cmp clientH, 0
+    je RenderFinished
+
+
+    ; ========================================================
+    ; 1. Clear previous frame
+    ; ========================================================
+
     invoke glClear, GL_COLOR_BUFFER_BIT
 
-    ; Display the completed back buffer.
+
+    ; ========================================================
+    ; 2. Prepare mathematical projection
+    ; ========================================================
+
+    invoke SetupProjection
+
+
+    ; ========================================================
+    ; 3. Draw GraphX axes
+    ; ========================================================
+
+    invoke DrawAxes
+
+
+    ; ========================================================
+    ; 4. Display back buffer
+    ; ========================================================
+
     invoke SwapBuffers, hDC
 
-RenderDone:
+
+RenderFinished:
 
     ret
 
@@ -291,33 +589,31 @@ RenderScene ENDP
 ; ============================================================
 ; InitializeOpenGL
 ;
-; Input:
-;   targetWnd = GraphX window handle
-;
-; Output:
-;   EAX = 1 success
-;   EAX = 0 failure
+; EAX = 1 success
+; EAX = 0 failure
 ; ============================================================
 
 InitializeOpenGL PROC STDCALL targetWnd:DWORD
 
-    ; --------------------------------------------------------
-    ; 1. Obtain the device context belonging to the window
-    ; --------------------------------------------------------
+
+    ; ========================================================
+    ; 1. Get Windows device context
+    ; ========================================================
 
     invoke GetDC, targetWnd
 
     test eax, eax
-    jz OpenGLInitFailed
+    jz OpenGLInitializationFailed
 
     mov hDC, eax
 
 
-    ; --------------------------------------------------------
-    ; 2. Prepare the pixel format descriptor
-    ; --------------------------------------------------------
+    ; ========================================================
+    ; 2. Configure pixel format
+    ; ========================================================
 
     mov pfd.nSize, SIZEOF PIXELFORMATDESCRIPTOR
+
     mov pfd.nVersion, 1
 
 
@@ -330,13 +626,12 @@ InitializeOpenGL PROC STDCALL targetWnd:DWORD
     mov pfd.iPixelType, PFD_TYPE_RGBA
 
 
-    ; Request 32-bit color.
+    ; 32-bit RGBA color
 
     mov pfd.cColorBits, 32
 
 
-    ; Request a depth buffer now so we can use it later
-    ; when GraphX reaches 3D rendering.
+    ; Reserve 24-bit depth buffer for future 3D.
 
     mov pfd.cDepthBits, 24
 
@@ -344,21 +639,24 @@ InitializeOpenGL PROC STDCALL targetWnd:DWORD
     mov pfd.iLayerType, PFD_MAIN_PLANE
 
 
-    ; --------------------------------------------------------
-    ; 3. Ask Windows for a matching pixel format
-    ; --------------------------------------------------------
+    ; ========================================================
+    ; 3. Select pixel format
+    ; ========================================================
 
-    invoke ChoosePixelFormat, hDC, ADDR pfd
+    invoke ChoosePixelFormat, \
+        hDC,                   \
+        ADDR pfd
 
     test eax, eax
-    jz OpenGLInitFailed
+    jz OpenGLInitializationFailed
+
 
     mov pixelFormat, eax
 
 
-    ; --------------------------------------------------------
-    ; 4. Set the window's pixel format
-    ; --------------------------------------------------------
+    ; ========================================================
+    ; 4. Install pixel format
+    ; ========================================================
 
     invoke SetPixelFormat, \
         hDC,                \
@@ -366,53 +664,82 @@ InitializeOpenGL PROC STDCALL targetWnd:DWORD
         ADDR pfd
 
     test eax, eax
-    jz OpenGLInitFailed
+    jz OpenGLInitializationFailed
 
 
-    ; --------------------------------------------------------
-    ; 5. Create an OpenGL rendering context
-    ; --------------------------------------------------------
+    ; ========================================================
+    ; 5. Create OpenGL context
+    ; ========================================================
 
     invoke wglCreateContext, hDC
 
     test eax, eax
-    jz OpenGLInitFailed
+    jz OpenGLInitializationFailed
+
 
     mov hGLRC, eax
 
 
-    ; --------------------------------------------------------
-    ; 6. Make the context current on this thread
-    ; --------------------------------------------------------
+    ; ========================================================
+    ; 6. Make rendering context active
+    ; ========================================================
 
-    invoke wglMakeCurrent, hDC, hGLRC
+    invoke wglMakeCurrent, \
+        hDC,                \
+        hGLRC
 
     test eax, eax
-    jz OpenGLInitFailed
+    jz OpenGLInitializationFailed
 
 
-    ; --------------------------------------------------------
-    ; 7. Set GraphX background color
-    ;
-    ; The arguments are passed as their raw 32-bit
-    ; floating-point representations.
-    ; --------------------------------------------------------
+    ; ========================================================
+    ; 7. Configure background
+    ; ========================================================
 
     invoke glClearColor, \
-        DWORD PTR clearRed,   \
+        DWORD PTR clearRed, \
         DWORD PTR clearGreen, \
-        DWORD PTR clearBlue,  \
+        DWORD PTR clearBlue, \
         DWORD PTR clearAlpha
+
+
+    ; ========================================================
+    ; 8. Obtain actual client area size
+    ; ========================================================
+
+    invoke GetClientRect, \
+        targetWnd,         \
+        ADDR clientRect
+
+
+    mov eax, clientRect.right
+    sub eax, clientRect.left
+
+    mov clientW, eax
+
+
+    mov eax, clientRect.bottom
+    sub eax, clientRect.top
+
+    mov clientH, eax
+
+
+    ; ========================================================
+    ; 9. Configure viewport
+    ; ========================================================
+
+    invoke SetupViewport
 
 
     mov eax, 1
     ret
 
 
-OpenGLInitFailed:
+OpenGLInitializationFailed:
 
     xor eax, eax
     ret
+
 
 InitializeOpenGL ENDP
 
@@ -423,30 +750,43 @@ InitializeOpenGL ENDP
 
 CleanupOpenGL PROC STDCALL targetWnd:DWORD
 
-    ; --------------------------------------------------------
-    ; Disconnect and delete the OpenGL rendering context.
-    ; --------------------------------------------------------
+
+    ; ========================================================
+    ; Remove OpenGL context
+    ; ========================================================
 
     cmp hGLRC, 0
-    je SkipGLRCleanup
+    je SkipContextCleanup
+
+
+    ; Detach current context
 
     invoke wglMakeCurrent, 0, 0
 
+
+    ; Delete it
+
     invoke wglDeleteContext, hGLRC
+
 
     mov hGLRC, 0
 
 
-SkipGLRCleanup:
+SkipContextCleanup:
 
-    ; --------------------------------------------------------
-    ; Release the Windows device context.
-    ; --------------------------------------------------------
+
+    ; ========================================================
+    ; Release Windows DC
+    ; ========================================================
 
     cmp hDC, 0
     je CleanupFinished
 
-    invoke ReleaseDC, targetWnd, hDC
+
+    invoke ReleaseDC, \
+        targetWnd,     \
+        hDC
+
 
     mov hDC, 0
 
@@ -469,44 +809,41 @@ WindowProc PROC STDCALL \
     lParam:DWORD
 
 
-    ; --------------------------------------------------------
+    ; ========================================================
     ; WM_PAINT
-    ; --------------------------------------------------------
+    ; ========================================================
 
     cmp uMsg, WM_PAINT
     je WindowPaint
 
 
-    ; --------------------------------------------------------
+    ; ========================================================
     ; WM_SIZE
-    ; --------------------------------------------------------
+    ; ========================================================
 
     cmp uMsg, WM_SIZE
     je WindowSize
 
 
-    ; --------------------------------------------------------
+    ; ========================================================
     ; WM_ERASEBKGND
-    ;
-    ; We render the background using OpenGL, so tell Windows
-    ; that background erasing is already handled.
-    ; --------------------------------------------------------
+    ; ========================================================
 
     cmp uMsg, WM_ERASEBKGND
     je BackgroundHandled
 
 
-    ; --------------------------------------------------------
+    ; ========================================================
     ; WM_DESTROY
-    ; --------------------------------------------------------
+    ; ========================================================
 
     cmp uMsg, WM_DESTROY
     je WindowDestroyed
 
 
-    ; --------------------------------------------------------
-    ; Everything else goes to Windows.
-    ; --------------------------------------------------------
+    ; ========================================================
+    ; Default Windows processing
+    ; ========================================================
 
     invoke DefWindowProcA, \
         hWnd,              \
@@ -518,47 +855,85 @@ WindowProc PROC STDCALL \
 
 
 ; ============================================================
-; Window needs repainting
+; WM_PAINT
 ; ============================================================
 
 WindowPaint:
 
     invoke RenderScene
 
-    ; Remove the pending paint region.
     invoke ValidateRect, hWnd, 0
 
     xor eax, eax
+
     ret
 
 
 ; ============================================================
-; Window was resized
+; WM_SIZE
 ;
-; For now we simply redraw.
-; glViewport comes in the next step.
+; LOWORD(lParam)  = client width
+; HIWORD(lParam)  = client height
 ; ============================================================
 
 WindowSize:
 
+
+    ; --------------------------------------------------------
+    ; Extract width
+    ; --------------------------------------------------------
+
+    mov eax, lParam
+
+    movzx ecx, ax
+
+    mov clientW, ecx
+
+
+    ; --------------------------------------------------------
+    ; Extract height
+    ; --------------------------------------------------------
+
+    shr eax, 16
+
+    movzx ecx, ax
+
+    mov clientH, ecx
+
+
+    ; --------------------------------------------------------
+    ; WM_SIZE can happen before OpenGL initialization.
+    ; --------------------------------------------------------
+
+    cmp hGLRC, 0
+    je WindowSizeFinished
+
+
+    invoke SetupViewport
+
     invoke RenderScene
 
+
+WindowSizeFinished:
+
     xor eax, eax
+
     ret
 
 
 ; ============================================================
-; Prevent GDI background clearing
+; OpenGL handles background clearing
 ; ============================================================
 
 BackgroundHandled:
 
     mov eax, 1
+
     ret
 
 
 ; ============================================================
-; Window is being destroyed
+; WM_DESTROY
 ; ============================================================
 
 WindowDestroyed:
@@ -568,6 +943,7 @@ WindowDestroyed:
     invoke PostQuitMessage, 0
 
     xor eax, eax
+
     ret
 
 
@@ -575,22 +951,26 @@ WindowProc ENDP
 
 
 ; ============================================================
-; Program entry
+; Program Entry
 ; ============================================================
 
 start:
 
-    ; --------------------------------------------------------
-    ; Initialize global handles.
-    ; --------------------------------------------------------
+
+    ; ========================================================
+    ; Initialize global variables
+    ; ========================================================
 
     mov hDC, 0
     mov hGLRC, 0
     mov hMainWnd, 0
 
+    mov clientW, 0
+    mov clientH, 0
+
 
     ; ========================================================
-    ; 1. Get executable module handle
+    ; 1. Obtain application module handle
     ; ========================================================
 
     invoke GetModuleHandleA, 0
@@ -599,7 +979,7 @@ start:
 
 
     ; ========================================================
-    ; 2. Configure the GraphX window class
+    ; 2. Configure window class
     ; ========================================================
 
     mov windowClass.cbSize, SIZEOF WNDCLASSEX
@@ -615,48 +995,55 @@ start:
 
 
     mov windowClass.cbClsExtra, 0
+
     mov windowClass.cbWndExtra, 0
 
 
     mov eax, hInstance
+
     mov windowClass.hInstance, eax
 
 
     mov windowClass.hIcon, 0
 
-
-    ; --------------------------------------------------------
-    ; Load Windows arrow cursor
-    ; --------------------------------------------------------
-
-    invoke LoadCursorA, 0, IDC_ARROW
-
-    mov windowClass.hCursor, eax
-
-
-    ; --------------------------------------------------------
-    ; No GDI background brush.
-    ;
-    ; OpenGL owns the drawing area.
-    ; --------------------------------------------------------
-
-    mov windowClass.hbrBackground, 0
-
-
-    mov windowClass.lpszMenuName, 0
-
-    mov windowClass.lpszClassName, OFFSET className
-
     mov windowClass.hIconSm, 0
 
 
     ; ========================================================
-    ; 3. Register the window class
+    ; Load arrow cursor
     ; ========================================================
 
-    invoke RegisterClassExA, ADDR windowClass
+    invoke LoadCursorA, \
+        0,               \
+        IDC_ARROW
+
+
+    mov windowClass.hCursor, eax
+
+
+    ; OpenGL handles background.
+
+    mov windowClass.hbrBackground, 0
+
+
+    ; No menu yet.
+
+    mov windowClass.lpszMenuName, 0
+
+
+    mov windowClass.lpszClassName, OFFSET className
+
+
+    ; ========================================================
+    ; 3. Register GraphX window class
+    ; ========================================================
+
+    invoke RegisterClassExA, \
+        ADDR windowClass
+
 
     test eax, eax
+
     jz RegistrationFailed
 
 
@@ -665,23 +1052,24 @@ start:
     ; ========================================================
 
     invoke CreateWindowExA, \
-        0,                  \
-        ADDR className,     \
-        ADDR windowTitle,   \
+        0, \
+        ADDR className, \
+        ADDR windowTitle, \
         WS_OVERLAPPEDWINDOW OR \
             WS_CLIPCHILDREN OR \
             WS_CLIPSIBLINGS, \
-        CW_USEDEFAULT,      \
-        CW_USEDEFAULT,      \
-        1024,               \
-        768,                \
-        0,                  \
-        0,                  \
-        hInstance,          \
+        CW_USEDEFAULT, \
+        CW_USEDEFAULT, \
+        1024, \
+        768, \
+        0, \
+        0, \
+        hInstance, \
         0
 
 
     test eax, eax
+
     jz WindowCreationFailed
 
 
@@ -694,29 +1082,35 @@ start:
 
     invoke InitializeOpenGL, hMainWnd
 
+
     test eax, eax
+
     jz OpenGLCreationFailed
 
 
     ; ========================================================
-    ; 6. Show window
+    ; 6. Show GraphX
     ; ========================================================
 
-    invoke ShowWindow, hMainWnd, SW_SHOWNORMAL
+    invoke ShowWindow, \
+        hMainWnd,        \
+        SW_SHOWNORMAL
+
 
     invoke UpdateWindow, hMainWnd
 
 
-    ; Draw once immediately.
+    ; Initial render.
 
     invoke RenderScene
 
 
 ; ============================================================
-; 7. Windows message loop
+; Main Windows Message Loop
 ; ============================================================
 
 MessageLoop:
+
 
     invoke GetMessageA, \
         ADDR messageData, \
@@ -728,27 +1122,38 @@ MessageLoop:
     ; WM_QUIT
 
     cmp eax, 0
+
     je ProgramFinished
 
 
-    ; GetMessage failure
+    ; Error
 
     cmp eax, -1
+
     je MessageLoopFailed
 
 
-    invoke TranslateMessage, ADDR messageData
+    ; Translate keyboard input
 
-    invoke DispatchMessageA, ADDR messageData
+    invoke TranslateMessage, \
+        ADDR messageData
+
+
+    ; Dispatch event to WindowProc
+
+    invoke DispatchMessageA, \
+        ADDR messageData
+
 
     jmp MessageLoop
 
 
 ; ============================================================
-; Normal exit
+; Normal Exit
 ; ============================================================
 
 ProgramFinished:
+
 
     mov eax, messageData.wParam
 
@@ -770,9 +1175,6 @@ WindowCreationFailed:
 
 
 OpenGLCreationFailed:
-
-    ; Destroying the window will eventually cause
-    ; OpenGL resources/DC resources to be cleaned if present.
 
     invoke CleanupOpenGL, hMainWnd
 
