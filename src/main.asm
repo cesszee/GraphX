@@ -1,13 +1,18 @@
 ; ============================================================
-; GraphX - Step 4
-; First real 32-bit Win32 application window
+; GraphX - Step 5
+; 32-bit MASM + Win32 + OpenGL
 ;
-; Build:
+; Goal:
+;   Create a Win32 window
+;   Create an OpenGL rendering context
+;   Clear the screen with OpenGL
+;
+; Assemble:
 ;   ml /nologo /c /coff main.asm
 ;
 ; Link:
 ;   link /nologo /SUBSYSTEM:WINDOWS /ENTRY:start main.obj ^
-;        user32.lib kernel32.lib ^
+;        user32.lib kernel32.lib gdi32.lib opengl32.lib ^
 ;        /OUT:C:\GraphX\build\GraphX.exe
 ; ============================================================
 
@@ -17,7 +22,7 @@ option casemap:none
 
 
 ; ============================================================
-; Win32 API prototypes
+; Win32 API
 ; ============================================================
 
 GetModuleHandleA PROTO STDCALL :DWORD
@@ -27,50 +32,69 @@ LoadCursorA      PROTO STDCALL :DWORD, :DWORD
 RegisterClassExA PROTO STDCALL :DWORD
 
 CreateWindowExA  PROTO STDCALL \
-    :DWORD,      \
-    :DWORD,      \
-    :DWORD,      \
-    :DWORD,      \
-    :DWORD,      \
-    :DWORD,      \
-    :DWORD,      \
-    :DWORD,      \
-    :DWORD,      \
-    :DWORD,      \
-    :DWORD,      \
-    :DWORD
+    :DWORD, :DWORD, :DWORD, :DWORD, \
+    :DWORD, :DWORD, :DWORD, :DWORD, \
+    :DWORD, :DWORD, :DWORD, :DWORD
 
 ShowWindow       PROTO STDCALL :DWORD, :DWORD
 UpdateWindow     PROTO STDCALL :DWORD
 
 GetMessageA      PROTO STDCALL \
-    :DWORD,      \
-    :DWORD,      \
-    :DWORD,      \
-    :DWORD
+    :DWORD, :DWORD, :DWORD, :DWORD
 
 TranslateMessage PROTO STDCALL :DWORD
 DispatchMessageA PROTO STDCALL :DWORD
 
 DefWindowProcA   PROTO STDCALL \
-    :DWORD,      \
-    :DWORD,      \
-    :DWORD,      \
-    :DWORD
+    :DWORD, :DWORD, :DWORD, :DWORD
 
 PostQuitMessage  PROTO STDCALL :DWORD
+ValidateRect     PROTO STDCALL :DWORD, :DWORD
+
+GetDC            PROTO STDCALL :DWORD
+ReleaseDC        PROTO STDCALL :DWORD, :DWORD
+
+ChoosePixelFormat PROTO STDCALL :DWORD, :DWORD
+SetPixelFormat    PROTO STDCALL :DWORD, :DWORD, :DWORD
+SwapBuffers       PROTO STDCALL :DWORD
 
 
 ; ============================================================
-; Constants
+; WGL API
+; ============================================================
+
+wglCreateContext PROTO STDCALL :DWORD
+wglMakeCurrent   PROTO STDCALL :DWORD, :DWORD
+wglDeleteContext PROTO STDCALL :DWORD
+
+
+; ============================================================
+; OpenGL 1.x API
+;
+; DWORD is used for the floating-point parameters here because
+; each GLfloat occupies 32 bits in the 32-bit calling ABI.
+; ============================================================
+
+glClearColor PROTO STDCALL :DWORD, :DWORD, :DWORD, :DWORD
+glClear      PROTO STDCALL :DWORD
+
+
+; ============================================================
+; Win32 constants
 ; ============================================================
 
 CS_VREDRAW          EQU 0001h
 CS_HREDRAW          EQU 0002h
+CS_OWNDC            EQU 0020h
 
 WM_DESTROY          EQU 0002h
+WM_PAINT            EQU 000Fh
+WM_ERASEBKGND       EQU 0014h
+WM_SIZE             EQU 0005h
 
 WS_OVERLAPPEDWINDOW EQU 00CF0000h
+WS_CLIPCHILDREN     EQU 02000000h
+WS_CLIPSIBLINGS     EQU 04000000h
 
 CW_USEDEFAULT       EQU 80000000h
 
@@ -78,16 +102,31 @@ SW_SHOWNORMAL       EQU 1
 
 IDC_ARROW           EQU 32512
 
-COLOR_WINDOW        EQU 5
+
+; ============================================================
+; Pixel format constants
+; ============================================================
+
+PFD_DOUBLEBUFFER    EQU 00000001h
+PFD_DRAW_TO_WINDOW  EQU 00000004h
+PFD_SUPPORT_OPENGL  EQU 00000020h
+
+PFD_TYPE_RGBA       EQU 0
+PFD_MAIN_PLANE      EQU 0
 
 
 ; ============================================================
-; WNDCLASSEXA structure
-;
-; 32-bit layout = 12 DWORD fields = 48 bytes
+; OpenGL constants
 ; ============================================================
 
-WNDCLASSEX STRUCT
+GL_COLOR_BUFFER_BIT EQU 00004000h
+
+
+; ============================================================
+; WNDCLASSEXA
+; ============================================================
+
+WNDCLASSEX STRUCT 4
 
     cbSize          DWORD ?
     style           DWORD ?
@@ -108,10 +147,10 @@ WNDCLASSEX ENDS
 
 
 ; ============================================================
-; MSG structure
+; MSG
 ; ============================================================
 
-MSG STRUCT
+MSG STRUCT 4
 
     hwnd            DWORD ?
     message         DWORD ?
@@ -126,30 +165,95 @@ MSG ENDS
 
 
 ; ============================================================
-; Data
+; PIXELFORMATDESCRIPTOR
+;
+; Must be exactly 40 bytes.
+; STRUCT 1 prevents MASM from inserting unwanted padding.
+; ============================================================
+
+PIXELFORMATDESCRIPTOR STRUCT 1
+
+    nSize           WORD ?
+    nVersion        WORD ?
+
+    dwFlags         DWORD ?
+
+    iPixelType      BYTE ?
+    cColorBits      BYTE ?
+
+    cRedBits        BYTE ?
+    cRedShift       BYTE ?
+
+    cGreenBits      BYTE ?
+    cGreenShift     BYTE ?
+
+    cBlueBits       BYTE ?
+    cBlueShift      BYTE ?
+
+    cAlphaBits      BYTE ?
+    cAlphaShift     BYTE ?
+
+    cAccumBits      BYTE ?
+    cAccumRedBits   BYTE ?
+    cAccumGreenBits BYTE ?
+    cAccumBlueBits  BYTE ?
+    cAccumAlphaBits BYTE ?
+
+    cDepthBits      BYTE ?
+    cStencilBits    BYTE ?
+    cAuxBuffers     BYTE ?
+
+    iLayerType      BYTE ?
+    bReserved       BYTE ?
+
+    dwLayerMask     DWORD ?
+    dwVisibleMask   DWORD ?
+    dwDamageMask    DWORD ?
+
+PIXELFORMATDESCRIPTOR ENDS
+
+
+; ============================================================
+; Initialized data
 ; ============================================================
 
 .data
 
 className db "GraphXWindowClass",0
 
-windowTitle db "GraphX - Mathematical Visualization System",0
+windowTitle db \
+    "GraphX - MASM + OpenGL Mathematical Visualization",0
 
 
 ; ------------------------------------------------------------
-; Global handles
+; OpenGL clear color
+;
+; Dark blue/black background
 ; ------------------------------------------------------------
 
-hInstance DWORD 0
-hMainWnd  DWORD 0
+clearRed   REAL4 0.04
+clearGreen REAL4 0.06
+clearBlue  REAL4 0.10
+clearAlpha REAL4 1.0
 
 
-; ------------------------------------------------------------
-; Structures
-; ------------------------------------------------------------
+; ============================================================
+; Uninitialized data
+; ============================================================
+
+.data?
+
+hInstance DWORD ?
+hMainWnd  DWORD ?
+
+hDC       DWORD ?
+hGLRC     DWORD ?
+
+pixelFormat DWORD ?
 
 windowClass WNDCLASSEX <>
 messageData MSG <>
+pfd         PIXELFORMATDESCRIPTOR <>
 
 
 ; ============================================================
@@ -160,26 +264,240 @@ messageData MSG <>
 
 
 ; ============================================================
+; RenderScene
+;
+; For Step 5 we only clear the OpenGL color buffer.
+; ============================================================
+
+RenderScene PROC STDCALL
+
+    ; No rendering context yet?
+    cmp hGLRC, 0
+    je RenderDone
+
+    ; Clear the OpenGL color buffer.
+    invoke glClear, GL_COLOR_BUFFER_BIT
+
+    ; Display the completed back buffer.
+    invoke SwapBuffers, hDC
+
+RenderDone:
+
+    ret
+
+RenderScene ENDP
+
+
+; ============================================================
+; InitializeOpenGL
+;
+; Input:
+;   targetWnd = GraphX window handle
+;
+; Output:
+;   EAX = 1 success
+;   EAX = 0 failure
+; ============================================================
+
+InitializeOpenGL PROC STDCALL targetWnd:DWORD
+
+    ; --------------------------------------------------------
+    ; 1. Obtain the device context belonging to the window
+    ; --------------------------------------------------------
+
+    invoke GetDC, targetWnd
+
+    test eax, eax
+    jz OpenGLInitFailed
+
+    mov hDC, eax
+
+
+    ; --------------------------------------------------------
+    ; 2. Prepare the pixel format descriptor
+    ; --------------------------------------------------------
+
+    mov pfd.nSize, SIZEOF PIXELFORMATDESCRIPTOR
+    mov pfd.nVersion, 1
+
+
+    mov pfd.dwFlags, \
+        PFD_DRAW_TO_WINDOW OR \
+        PFD_SUPPORT_OPENGL OR \
+        PFD_DOUBLEBUFFER
+
+
+    mov pfd.iPixelType, PFD_TYPE_RGBA
+
+
+    ; Request 32-bit color.
+
+    mov pfd.cColorBits, 32
+
+
+    ; Request a depth buffer now so we can use it later
+    ; when GraphX reaches 3D rendering.
+
+    mov pfd.cDepthBits, 24
+
+
+    mov pfd.iLayerType, PFD_MAIN_PLANE
+
+
+    ; --------------------------------------------------------
+    ; 3. Ask Windows for a matching pixel format
+    ; --------------------------------------------------------
+
+    invoke ChoosePixelFormat, hDC, ADDR pfd
+
+    test eax, eax
+    jz OpenGLInitFailed
+
+    mov pixelFormat, eax
+
+
+    ; --------------------------------------------------------
+    ; 4. Set the window's pixel format
+    ; --------------------------------------------------------
+
+    invoke SetPixelFormat, \
+        hDC,                \
+        pixelFormat,        \
+        ADDR pfd
+
+    test eax, eax
+    jz OpenGLInitFailed
+
+
+    ; --------------------------------------------------------
+    ; 5. Create an OpenGL rendering context
+    ; --------------------------------------------------------
+
+    invoke wglCreateContext, hDC
+
+    test eax, eax
+    jz OpenGLInitFailed
+
+    mov hGLRC, eax
+
+
+    ; --------------------------------------------------------
+    ; 6. Make the context current on this thread
+    ; --------------------------------------------------------
+
+    invoke wglMakeCurrent, hDC, hGLRC
+
+    test eax, eax
+    jz OpenGLInitFailed
+
+
+    ; --------------------------------------------------------
+    ; 7. Set GraphX background color
+    ;
+    ; The arguments are passed as their raw 32-bit
+    ; floating-point representations.
+    ; --------------------------------------------------------
+
+    invoke glClearColor, \
+        DWORD PTR clearRed,   \
+        DWORD PTR clearGreen, \
+        DWORD PTR clearBlue,  \
+        DWORD PTR clearAlpha
+
+
+    mov eax, 1
+    ret
+
+
+OpenGLInitFailed:
+
+    xor eax, eax
+    ret
+
+InitializeOpenGL ENDP
+
+
+; ============================================================
+; CleanupOpenGL
+; ============================================================
+
+CleanupOpenGL PROC STDCALL targetWnd:DWORD
+
+    ; --------------------------------------------------------
+    ; Disconnect and delete the OpenGL rendering context.
+    ; --------------------------------------------------------
+
+    cmp hGLRC, 0
+    je SkipGLRCleanup
+
+    invoke wglMakeCurrent, 0, 0
+
+    invoke wglDeleteContext, hGLRC
+
+    mov hGLRC, 0
+
+
+SkipGLRCleanup:
+
+    ; --------------------------------------------------------
+    ; Release the Windows device context.
+    ; --------------------------------------------------------
+
+    cmp hDC, 0
+    je CleanupFinished
+
+    invoke ReleaseDC, targetWnd, hDC
+
+    mov hDC, 0
+
+
+CleanupFinished:
+
+    ret
+
+CleanupOpenGL ENDP
+
+
+; ============================================================
 ; WindowProc
-;
-; Windows sends messages here.
-;
-; Parameters:
-;   hwnd   = window handle
-;   uMsg   = message number
-;   wParam = additional message information
-;   lParam = additional message information
 ; ============================================================
 
 WindowProc PROC STDCALL \
-    hwnd:DWORD,          \
+    hWnd:DWORD,          \
     uMsg:DWORD,          \
     wParam:DWORD,        \
     lParam:DWORD
 
 
     ; --------------------------------------------------------
-    ; Did Windows tell us the window was destroyed?
+    ; WM_PAINT
+    ; --------------------------------------------------------
+
+    cmp uMsg, WM_PAINT
+    je WindowPaint
+
+
+    ; --------------------------------------------------------
+    ; WM_SIZE
+    ; --------------------------------------------------------
+
+    cmp uMsg, WM_SIZE
+    je WindowSize
+
+
+    ; --------------------------------------------------------
+    ; WM_ERASEBKGND
+    ;
+    ; We render the background using OpenGL, so tell Windows
+    ; that background erasing is already handled.
+    ; --------------------------------------------------------
+
+    cmp uMsg, WM_ERASEBKGND
+    je BackgroundHandled
+
+
+    ; --------------------------------------------------------
+    ; WM_DESTROY
     ; --------------------------------------------------------
 
     cmp uMsg, WM_DESTROY
@@ -187,12 +505,11 @@ WindowProc PROC STDCALL \
 
 
     ; --------------------------------------------------------
-    ; Any message we don't handle ourselves is passed back
-    ; to Windows.
+    ; Everything else goes to Windows.
     ; --------------------------------------------------------
 
     invoke DefWindowProcA, \
-        hwnd,              \
+        hWnd,              \
         uMsg,              \
         wParam,            \
         lParam
@@ -200,11 +517,53 @@ WindowProc PROC STDCALL \
     ret
 
 
+; ============================================================
+; Window needs repainting
+; ============================================================
+
+WindowPaint:
+
+    invoke RenderScene
+
+    ; Remove the pending paint region.
+    invoke ValidateRect, hWnd, 0
+
+    xor eax, eax
+    ret
+
+
+; ============================================================
+; Window was resized
+;
+; For now we simply redraw.
+; glViewport comes in the next step.
+; ============================================================
+
+WindowSize:
+
+    invoke RenderScene
+
+    xor eax, eax
+    ret
+
+
+; ============================================================
+; Prevent GDI background clearing
+; ============================================================
+
+BackgroundHandled:
+
+    mov eax, 1
+    ret
+
+
+; ============================================================
+; Window is being destroyed
+; ============================================================
+
 WindowDestroyed:
 
-    ; --------------------------------------------------------
-    ; Put WM_QUIT into our thread's message queue.
-    ; --------------------------------------------------------
+    invoke CleanupOpenGL, hWnd
 
     invoke PostQuitMessage, 0
 
@@ -221,9 +580,17 @@ WindowProc ENDP
 
 start:
 
+    ; --------------------------------------------------------
+    ; Initialize global handles.
+    ; --------------------------------------------------------
+
+    mov hDC, 0
+    mov hGLRC, 0
+    mov hMainWnd, 0
+
 
     ; ========================================================
-    ; 1. Get this executable's module handle
+    ; 1. Get executable module handle
     ; ========================================================
 
     invoke GetModuleHandleA, 0
@@ -232,88 +599,78 @@ start:
 
 
     ; ========================================================
-    ; 2. Prepare WNDCLASSEX
+    ; 2. Configure the GraphX window class
     ; ========================================================
 
     mov windowClass.cbSize, SIZEOF WNDCLASSEX
 
 
-    ; Redraw when horizontal or vertical size changes
+    mov windowClass.style, \
+        CS_HREDRAW OR \
+        CS_VREDRAW OR \
+        CS_OWNDC
 
-    mov windowClass.style, CS_HREDRAW OR CS_VREDRAW
-
-
-    ; Address of our window procedure
 
     mov windowClass.lpfnWndProc, OFFSET WindowProc
 
-
-    ; No extra class/window bytes
 
     mov windowClass.cbClsExtra, 0
     mov windowClass.cbWndExtra, 0
 
 
-    ; Application instance
-
     mov eax, hInstance
     mov windowClass.hInstance, eax
 
 
-    ; No custom icon yet
-
     mov windowClass.hIcon, 0
-    mov windowClass.hIconSm, 0
 
 
-    ; ========================================================
-    ; 3. Load the normal Windows arrow cursor
-    ; ========================================================
+    ; --------------------------------------------------------
+    ; Load Windows arrow cursor
+    ; --------------------------------------------------------
 
     invoke LoadCursorA, 0, IDC_ARROW
 
     mov windowClass.hCursor, eax
 
 
-    ; ========================================================
-    ; 4. Background brush
+    ; --------------------------------------------------------
+    ; No GDI background brush.
     ;
-    ; System color brushes use COLOR_xxx + 1.
-    ; ========================================================
+    ; OpenGL owns the drawing area.
+    ; --------------------------------------------------------
 
-    mov windowClass.hbrBackground, COLOR_WINDOW + 1
+    mov windowClass.hbrBackground, 0
 
-
-    ; No menu yet
 
     mov windowClass.lpszMenuName, 0
 
-
-    ; Window class name
-
     mov windowClass.lpszClassName, OFFSET className
+
+    mov windowClass.hIconSm, 0
 
 
     ; ========================================================
-    ; 5. Register the window class
+    ; 3. Register the window class
     ; ========================================================
 
     invoke RegisterClassExA, ADDR windowClass
 
     test eax, eax
-
     jz RegistrationFailed
 
 
     ; ========================================================
-    ; 6. Create the GraphX window
+    ; 4. Create GraphX window
     ; ========================================================
 
     invoke CreateWindowExA, \
         0,                  \
         ADDR className,     \
         ADDR windowTitle,   \
-        WS_OVERLAPPEDWINDOW,\
+        WS_OVERLAPPEDWINDOW OR \
+            WS_CLIPCHILDREN OR \
+            WS_CLIPSIBLINGS, \
         CW_USEDEFAULT,      \
         CW_USEDEFAULT,      \
         1024,               \
@@ -324,10 +681,7 @@ start:
         0
 
 
-    ; CreateWindowExA returns HWND in EAX.
-
     test eax, eax
-
     jz WindowCreationFailed
 
 
@@ -335,19 +689,31 @@ start:
 
 
     ; ========================================================
-    ; 7. Show the window
+    ; 5. Initialize OpenGL
+    ; ========================================================
+
+    invoke InitializeOpenGL, hMainWnd
+
+    test eax, eax
+    jz OpenGLCreationFailed
+
+
+    ; ========================================================
+    ; 6. Show window
     ; ========================================================
 
     invoke ShowWindow, hMainWnd, SW_SHOWNORMAL
 
-
-    ; Ask Windows to paint it now.
-
     invoke UpdateWindow, hMainWnd
 
 
+    ; Draw once immediately.
+
+    invoke RenderScene
+
+
 ; ============================================================
-; 8. Main message loop
+; 7. Windows message loop
 ; ============================================================
 
 MessageLoop:
@@ -359,36 +725,27 @@ MessageLoop:
         0
 
 
-    ; --------------------------------------------------------
-    ; GetMessage returns:
-    ;
-    ; > 0 = normal message
-    ;   0 = WM_QUIT
-    ;  -1 = error
-    ; --------------------------------------------------------
+    ; WM_QUIT
 
     cmp eax, 0
     je ProgramFinished
 
+
+    ; GetMessage failure
+
     cmp eax, -1
-    je MessageError
+    je MessageLoopFailed
 
-
-    ; Translate keyboard-related messages.
 
     invoke TranslateMessage, ADDR messageData
 
-
-    ; Send the message to WindowProc.
-
     invoke DispatchMessageA, ADDR messageData
-
 
     jmp MessageLoop
 
 
 ; ============================================================
-; Normal program termination
+; Normal exit
 ; ============================================================
 
 ProgramFinished:
@@ -412,9 +769,21 @@ WindowCreationFailed:
     invoke ExitProcess, 2
 
 
-MessageError:
+OpenGLCreationFailed:
+
+    ; Destroying the window will eventually cause
+    ; OpenGL resources/DC resources to be cleaned if present.
+
+    invoke CleanupOpenGL, hMainWnd
 
     invoke ExitProcess, 3
+
+
+MessageLoopFailed:
+
+    invoke CleanupOpenGL, hMainWnd
+
+    invoke ExitProcess, 4
 
 
 END start
