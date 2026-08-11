@@ -1,18 +1,26 @@
 ; ============================================================
-; GraphX 
+; GraphX - Step 20
 ; 32-bit MASM + Win32 + OpenGL
 ;
+; NEW:
+;   - OpenGL bitmap font
+;   - X-axis numerical labels
+;   - Y-axis numerical labels
+;   - Origin label
+;   - Labels follow adaptive grid spacing
 ;
 ; Existing:
-;   Runtime expression input
-;   RPN compiler/evaluator
-;   + - * / ^
-;   parentheses / unary minus
-;   sin / cos / tan / sqrt
-;   pan / zoom / reset
-;   mouse coordinates
-;   crosshair
-;   status display
+;   - Runtime expression input
+;   - Infix -> RPN compiler
+;   - + - * / ^
+;   - Parentheses
+;   - Unary negative
+;   - sin / cos / tan / sqrt
+;   - Adaptive grid
+;   - Pan / zoom / reset
+;   - Mouse coordinates
+;   - Crosshair
+;   - Status bar
 ;
 ; ============================================================
 
@@ -38,9 +46,11 @@ ExpressionEditProc PROTO STDCALL \
 GetModuleHandleA PROTO STDCALL :DWORD
 ExitProcess      PROTO STDCALL :DWORD
 
-LoadCursorA PROTO STDCALL :DWORD, :DWORD
+LoadCursorA PROTO STDCALL \
+    :DWORD, :DWORD
 
-RegisterClassExA PROTO STDCALL :DWORD
+RegisterClassExA PROTO STDCALL \
+    :DWORD
 
 CreateWindowExA PROTO STDCALL \
     :DWORD, :DWORD, :DWORD, :DWORD, \
@@ -49,8 +59,11 @@ CreateWindowExA PROTO STDCALL \
 
 DestroyWindow PROTO STDCALL :DWORD
 
-ShowWindow   PROTO STDCALL :DWORD, :DWORD
-UpdateWindow PROTO STDCALL :DWORD
+ShowWindow PROTO STDCALL \
+    :DWORD, :DWORD
+
+UpdateWindow PROTO STDCALL \
+    :DWORD
 
 GetMessageA PROTO STDCALL \
     :DWORD, :DWORD, :DWORD, :DWORD
@@ -63,13 +76,19 @@ DefWindowProcA PROTO STDCALL \
 
 PostQuitMessage PROTO STDCALL :DWORD
 
-ValidateRect PROTO STDCALL :DWORD, :DWORD
-GetClientRect PROTO STDCALL :DWORD, :DWORD
+ValidateRect PROTO STDCALL \
+    :DWORD, :DWORD
+
+GetClientRect PROTO STDCALL \
+    :DWORD, :DWORD
 
 GetDC PROTO STDCALL :DWORD
-ReleaseDC PROTO STDCALL :DWORD, :DWORD
 
-ChoosePixelFormat PROTO STDCALL :DWORD, :DWORD
+ReleaseDC PROTO STDCALL \
+    :DWORD, :DWORD
+
+ChoosePixelFormat PROTO STDCALL \
+    :DWORD, :DWORD
 
 SetPixelFormat PROTO STDCALL \
     :DWORD, :DWORD, :DWORD
@@ -95,15 +114,31 @@ MessageBoxA PROTO STDCALL \
 
 
 ; ============================================================
+; GDI
+; ============================================================
+
+GetStockObject PROTO STDCALL \
+    :DWORD
+
+SelectObject PROTO STDCALL \
+    :DWORD, :DWORD
+
+
+; ============================================================
 ; WGL
 ; ============================================================
 
-wglCreateContext PROTO STDCALL :DWORD
+wglCreateContext PROTO STDCALL \
+    :DWORD
 
 wglMakeCurrent PROTO STDCALL \
     :DWORD, :DWORD
 
-wglDeleteContext PROTO STDCALL :DWORD
+wglDeleteContext PROTO STDCALL \
+    :DWORD
+
+wglUseFontBitmapsA PROTO STDCALL \
+    :DWORD, :DWORD, :DWORD, :DWORD
 
 
 ; ============================================================
@@ -119,6 +154,7 @@ glViewport PROTO STDCALL \
     :DWORD, :DWORD, :DWORD, :DWORD
 
 glMatrixMode PROTO STDCALL :DWORD
+
 glLoadIdentity PROTO STDCALL
 
 glScalef PROTO STDCALL \
@@ -136,6 +172,21 @@ glEnd   PROTO STDCALL
 glVertex2f PROTO STDCALL \
     :DWORD, :DWORD
 
+glRasterPos2f PROTO STDCALL \
+    :DWORD, :DWORD
+
+glGenLists PROTO STDCALL \
+    :DWORD
+
+glDeleteLists PROTO STDCALL \
+    :DWORD, :DWORD
+
+glListBase PROTO STDCALL \
+    :DWORD
+
+glCallLists PROTO STDCALL \
+    :DWORD, :DWORD, :DWORD
+
 
 ; ============================================================
 ; WINDOWS CONSTANTS
@@ -149,8 +200,10 @@ WM_DESTROY     EQU 0002h
 WM_SIZE        EQU 0005h
 WM_PAINT       EQU 000Fh
 WM_ERASEBKGND  EQU 0014h
+
 WM_KEYDOWN     EQU 0100h
 WM_CHAR        EQU 0102h
+
 WM_MOUSEMOVE   EQU 0200h
 WM_LBUTTONDOWN EQU 0201h
 
@@ -167,6 +220,7 @@ WS_EX_CLIENTEDGE EQU 00000200h
 ES_AUTOHSCROLL EQU 0080h
 
 CW_USEDEFAULT EQU 80000000h
+
 SW_SHOWNORMAL EQU 1
 
 IDC_ARROW EQU 32512
@@ -178,7 +232,14 @@ MB_ICONERROR EQU 00000010h
 
 
 ; ============================================================
-; KEYS
+; STOCK FONT
+; ============================================================
+
+ANSI_FIXED_FONT EQU 11
+
+
+; ============================================================
+; KEYBOARD
 ; ============================================================
 
 VK_RETURN EQU 00Dh
@@ -210,7 +271,7 @@ PFD_MAIN_PLANE EQU 0
 
 
 ; ============================================================
-; OPENGL
+; OPENGL CONSTANTS
 ; ============================================================
 
 GL_COLOR_BUFFER_BIT EQU 00004000h
@@ -221,9 +282,11 @@ GL_LINE_STRIP EQU 0003h
 GL_MODELVIEW  EQU 1700h
 GL_PROJECTION EQU 1701h
 
+GL_UNSIGNED_BYTE EQU 1401h
+
 
 ; ============================================================
-; GRAPHX
+; UI
 ; ============================================================
 
 TOP_PANEL_HEIGHT EQU 72
@@ -231,15 +294,24 @@ TOP_PANEL_HEIGHT EQU 72
 EDIT_ID   EQU 1001
 STATUS_ID EQU 1002
 
+
+; ============================================================
+; GRAPH
+; ============================================================
+
 GRAPH_INTERVALS    EQU 1000
 GRAPH_SAMPLE_COUNT EQU 1001
 
-; Grid is generated as:
-;
-; coordinate = integer multiple * gridStep
-;
 GRID_MULT_MIN EQU -1000
 GRID_MULT_MAX EQU  1000
+
+
+; ============================================================
+; FONT
+; ============================================================
+
+FONT_FIRST_CHAR EQU 32
+FONT_CHAR_COUNT EQU 96
 
 
 ; ============================================================
@@ -286,90 +358,123 @@ OP_SQRT EQU 0F4h
 ; ============================================================
 
 WNDCLASSEX STRUCT 4
+
     cbSize          DWORD ?
     style           DWORD ?
     lpfnWndProc     DWORD ?
     cbClsExtra      DWORD ?
     cbWndExtra      DWORD ?
+
     hInstance       DWORD ?
     hIcon           DWORD ?
     hCursor         DWORD ?
     hbrBackground   DWORD ?
+
     lpszMenuName    DWORD ?
     lpszClassName   DWORD ?
     hIconSm         DWORD ?
+
 WNDCLASSEX ENDS
 
 
 MSG STRUCT 4
+
     hwnd     DWORD ?
     message  DWORD ?
     wParam   DWORD ?
     lParam   DWORD ?
     time     DWORD ?
+
     ptX      DWORD ?
     ptY      DWORD ?
+
 MSG ENDS
 
 
 RECT STRUCT 4
+
     left   DWORD ?
     top    DWORD ?
     right  DWORD ?
     bottom DWORD ?
+
 RECT ENDS
 
 
 PIXELFORMATDESCRIPTOR STRUCT 1
+
     nSize           WORD ?
     nVersion        WORD ?
+
     dwFlags         DWORD ?
+
     iPixelType      BYTE ?
     cColorBits      BYTE ?
+
     cRedBits        BYTE ?
     cRedShift       BYTE ?
+
     cGreenBits      BYTE ?
     cGreenShift     BYTE ?
+
     cBlueBits       BYTE ?
     cBlueShift      BYTE ?
+
     cAlphaBits      BYTE ?
     cAlphaShift     BYTE ?
+
     cAccumBits      BYTE ?
     cAccumRedBits   BYTE ?
     cAccumGreenBits BYTE ?
     cAccumBlueBits  BYTE ?
     cAccumAlphaBits BYTE ?
+
     cDepthBits      BYTE ?
     cStencilBits    BYTE ?
     cAuxBuffers     BYTE ?
+
     iLayerType      BYTE ?
     bReserved       BYTE ?
+
     dwLayerMask     DWORD ?
     dwVisibleMask   DWORD ?
     dwDamageMask    DWORD ?
+
 PIXELFORMATDESCRIPTOR ENDS
 
 
 ; ============================================================
-; DATA
+; INITIALIZED DATA
 ; ============================================================
 
 .data
 
+
+; ============================================================
+; WINDOW
+; ============================================================
+
 className db "GraphXWindowClass",0
+
 editClassName db "EDIT",0
+
 staticClassName db "STATIC",0
 
 windowTitle db \
-    "GraphX",0
+    "GraphX - Axis Labels",0
 
+
+; ============================================================
+; EXPRESSION
+; ============================================================
 
 expressionText db "x^2",0,252 DUP(0)
+
 lastGoodExpression db MAX_EXPRESSION_LENGTH DUP(0)
 
 
 ; ============================================================
-; STATUS STRINGS
+; STATUS TEXT
 ; ============================================================
 
 statusText db 300 DUP(0)
@@ -391,6 +496,17 @@ txtControls db \
     "   |   W/A/S/D pan   +/- zoom   R reset",0
 
 
+; ============================================================
+; AXIS LABEL
+; ============================================================
+
+originLabel db "0.00",0
+
+
+; ============================================================
+; ERROR
+; ============================================================
+
 errorTitle db "GraphX Expression Error",0
 
 errorMessage db \
@@ -411,17 +527,26 @@ clearGreen REAL4 0.06
 clearBlue  REAL4 0.10
 clearAlpha REAL4 1.0
 
+
 gridRed   REAL4 0.18
 gridGreen REAL4 0.22
 gridBlue  REAL4 0.28
+
 
 axisRed   REAL4 0.92
 axisGreen REAL4 0.92
 axisBlue  REAL4 0.92
 
+
+labelRed   REAL4 0.72
+labelGreen REAL4 0.76
+labelBlue  REAL4 0.82
+
+
 graphRed   REAL4 0.20
 graphGreen REAL4 0.85
 graphBlue  REAL4 0.35
+
 
 crossRed   REAL4 0.95
 crossGreen REAL4 0.55
@@ -429,11 +554,12 @@ crossBlue  REAL4 0.20
 
 
 ; ============================================================
-; CONSTANTS
+; NUMERIC CONSTANTS
 ; ============================================================
 
 floatZero REAL4 0.0
 floatOne  REAL4 1.0
+
 floatPointOne REAL4 0.1
 
 tanEpsilon REAL4 0.0001
@@ -453,6 +579,7 @@ centerY REAL4 0.0
 
 zoomHalfRange REAL4 10.0
 
+
 zoomInFactor  REAL4 0.80
 zoomOutFactor REAL4 1.25
 
@@ -460,6 +587,7 @@ minHalfRange REAL4 0.50
 maxHalfRange REAL4 50.0
 
 zoomCandidate REAL4 0.0
+
 
 panFraction REAL4 0.10
 
@@ -508,30 +636,63 @@ gridStep50 REAL4 5.0
 
 
 ; ============================================================
-; GRAPH / PARSER
+; AXIS LABEL POSITION
+; ============================================================
+
+labelYOffsetFactor REAL4 0.35
+labelXOffsetFactor REAL4 0.15
+
+xLabelY REAL4 -0.35
+yLabelX REAL4  0.15
+
+
+; ============================================================
+; GRAPH
 ; ============================================================
 
 graphIntervalCount DWORD GRAPH_INTERVALS
 
+
+; ============================================================
+; PARSER
+; ============================================================
+
 rpnCount DWORD 0
+
 operatorTop DWORD 0
 
 parserExpectOperand DWORD 1
+
 parserNeedFunctionParen DWORD 0
 
+
 parserNumber REAL4 0.0
+
 parserFractionScale REAL4 0.1
 
 parserDigitInt DWORD 0
+
 parserDigitSeen DWORD 0
+
 parserDecimalSeen DWORD 0
 
+
+; ============================================================
+; EVALUATOR
+; ============================================================
+
 evalStackTop DWORD 0
+
 evalOperandB REAL4 0.0
 
 functionInput REAL4 0.0
-functionSin REAL4 0.0
-functionCos REAL4 0.0
+functionSin   REAL4 0.0
+functionCos   REAL4 0.0
+
+
+; ============================================================
+; POWER
+; ============================================================
 
 powerExponentInt DWORD 0
 
@@ -540,7 +701,13 @@ powerResult REAL4 1.0
 
 powerNegative DWORD 0
 
+
 graphSegmentActive DWORD 0
+
+
+; ============================================================
+; STATUS FORMAT
+; ============================================================
 
 statusScaled DWORD 0
 statusFraction DWORD 0
@@ -552,7 +719,9 @@ statusFraction DWORD 0
 
 .data?
 
+
 hInstance DWORD ?
+
 hMainWnd DWORD ?
 
 hExpressionEdit DWORD ?
@@ -560,25 +729,58 @@ hStatus DWORD ?
 
 oldEditProc DWORD ?
 
+
 hDC DWORD ?
 hGLRC DWORD ?
 
 pixelFormat DWORD ?
 
+
+; ============================================================
+; FONT
+; ============================================================
+
+fontBase DWORD ?
+
+hBitmapFont DWORD ?
+hOldFont DWORD ?
+
+
+; ============================================================
+; WINDOW SIZE
+; ============================================================
+
 clientW DWORD ?
 clientH DWORD ?
+
 graphH DWORD ?
+
+
+; ============================================================
+; GRAPH
+; ============================================================
 
 currentX REAL4 ?
 currentY REAL4 ?
 
 graphStepX REAL4 ?
 
+
+; ============================================================
+; GRID
+; ============================================================
+
 gridMultiple DWORD ?
 gridCoord REAL4 ?
 
+
+; ============================================================
+; MOUSE
+; ============================================================
+
 mousePixelX DWORD ?
 mousePixelY DWORD ?
+
 mouseGraphY DWORD ?
 
 mouseWorldX REAL4 ?
@@ -586,23 +788,46 @@ mouseWorldY REAL4 ?
 
 mouseRangeX REAL4 ?
 mouseRangeY REAL4 ?
+
 mouseOffsetY REAL4 ?
 
 mouseActive DWORD ?
 
+
+; ============================================================
+; EXPRESSION ENGINE
+; ============================================================
+
 rpnTypes BYTE MAX_RPN_TOKENS DUP(?)
+
 rpnValues REAL4 MAX_RPN_TOKENS DUP(?)
 
 operatorStack BYTE MAX_OPERATOR_STACK DUP(?)
+
 evalStack REAL4 MAX_EVAL_STACK DUP(?)
 
 currentOperator BYTE ?
 
+
+; ============================================================
+; TEXT BUFFERS
+; ============================================================
+
 statusDigits BYTE 16 DUP(?)
 
+axisLabelBuffer BYTE 32 DUP(?)
+
+
+; ============================================================
+; STRUCTURES
+; ============================================================
+
 windowClass WNDCLASSEX <>
+
 messageData MSG <>
+
 clientRect RECT <>
+
 pfd PIXELFORMATDESCRIPTOR <>
 
 
@@ -614,7 +839,7 @@ pfd PIXELFORMATDESCRIPTOR <>
 
 
 ; ============================================================
-; STRING COPY
+; COPY C STRING
 ; ============================================================
 
 CopyCString PROC STDCALL \
@@ -635,12 +860,14 @@ CopyCString PROC STDCALL \
 
     dec ecx
 
+
 CopyLoop:
 
     test ecx, ecx
     jz CopyForceZero
 
     mov al, BYTE PTR [esi]
+
     mov BYTE PTR [edi], al
 
     inc esi
@@ -653,9 +880,11 @@ CopyLoop:
 
     jmp CopyLoop
 
+
 CopyForceZero:
 
     mov BYTE PTR [edi], 0
+
 
 CopyDone:
 
@@ -665,11 +894,46 @@ CopyDone:
 
     ret
 
+
 CopyCString ENDP
 
 
 ; ============================================================
-; APPEND STRING
+; C STRING LENGTH
+; ============================================================
+
+CStringLength PROC STDCALL textPtr:DWORD
+
+    push esi
+
+    mov esi, textPtr
+
+    xor eax, eax
+
+
+LengthLoop:
+
+    cmp BYTE PTR [esi + eax], 0
+
+    je LengthDone
+
+    inc eax
+
+    jmp LengthLoop
+
+
+LengthDone:
+
+    pop esi
+
+    ret
+
+
+CStringLength ENDP
+
+
+; ============================================================
+; APPEND C STRING
 ; ============================================================
 
 AppendCString PROC STDCALL \
@@ -681,6 +945,7 @@ AppendCString PROC STDCALL \
 
     mov edi, destPtr
     mov esi, srcPtr
+
 
 AppendStringLoop:
 
@@ -696,6 +961,7 @@ AppendStringLoop:
 
     jmp AppendStringLoop
 
+
 AppendStringDone:
 
     mov BYTE PTR [edi], 0
@@ -707,11 +973,12 @@ AppendStringDone:
 
     ret
 
+
 AppendCString ENDP
 
 
 ; ============================================================
-; APPEND REAL4 WITH TWO DECIMAL PLACES
+; APPEND REAL4 WITH TWO DECIMALS
 ; ============================================================
 
 AppendFixed2 PROC STDCALL \
@@ -724,98 +991,156 @@ AppendFixed2 PROC STDCALL \
     push ecx
     push edx
 
+
     mov edi, destPtr
+
     mov esi, valuePtr
 
+
+    ; value * 100
+
     fld DWORD PTR [esi]
+
     fimul DWORD PTR integerHundred
+
     fistp DWORD PTR statusScaled
+
 
     mov eax, statusScaled
 
+
+    ; Sign
+
     test eax, eax
+
     jge FixedPositive
 
+
     mov BYTE PTR [edi], '-'
+
     inc edi
 
+
     neg eax
+
 
 FixedPositive:
 
     xor edx, edx
 
     mov ebx, 100
+
     div ebx
+
 
     mov statusFraction, edx
 
+
     lea esi, statusDigits
+
 
     xor ecx, ecx
 
+
     test eax, eax
+
     jne FixedIntegerLoop
 
+
     mov BYTE PTR [edi], '0'
+
     inc edi
 
+
     jmp FixedDecimalPoint
+
 
 FixedIntegerLoop:
 
     xor edx, edx
 
+
     mov ebx, 10
+
+
     div ebx
+
 
     add dl, '0'
 
+
     mov BYTE PTR [esi + ecx], dl
+
 
     inc ecx
 
+
     test eax, eax
+
     jne FixedIntegerLoop
+
 
 FixedWriteDigits:
 
     dec ecx
 
+
     mov al, BYTE PTR [esi + ecx]
+
 
     mov BYTE PTR [edi], al
 
+
     inc edi
 
+
     test ecx, ecx
+
     jne FixedWriteDigits
+
 
 FixedDecimalPoint:
 
     mov BYTE PTR [edi], '.'
+
     inc edi
+
 
     mov eax, statusFraction
 
+
     xor edx, edx
 
+
     mov ebx, 10
+
+
     div ebx
+
 
     add al, '0'
 
+
     mov BYTE PTR [edi], al
+
+
     inc edi
+
 
     add dl, '0'
 
+
     mov BYTE PTR [edi], dl
+
+
     inc edi
+
 
     mov BYTE PTR [edi], 0
 
+
     mov eax, edi
+
 
     pop edx
     pop ecx
@@ -823,90 +1148,136 @@ FixedDecimalPoint:
     pop edi
     pop esi
 
+
     ret
+
 
 AppendFixed2 ENDP
 
 
 ; ============================================================
-; STATUS TEXT
+; UPDATE STATUS BAR
 ; ============================================================
 
 UpdateStatusText PROC STDCALL
 
     push edi
 
+
     lea edi, statusText
 
+
     invoke AppendCString, edi, ADDR txtMouseX
+
     mov edi, eax
+
 
     cmp mouseActive, 0
+
     je StatusNoMouseX
 
+
     invoke AppendFixed2, edi, ADDR mouseWorldX
+
     mov edi, eax
 
+
     jmp StatusMouseY
+
 
 StatusNoMouseX:
 
     invoke AppendCString, edi, ADDR txtNoMouse
+
     mov edi, eax
+
 
 StatusMouseY:
 
     invoke AppendCString, edi, ADDR txtMouseY
+
     mov edi, eax
+
 
     cmp mouseActive, 0
+
     je StatusNoMouseY
 
+
     invoke AppendFixed2, edi, ADDR mouseWorldY
+
     mov edi, eax
 
+
     jmp StatusCenter
+
 
 StatusNoMouseY:
 
     invoke AppendCString, edi, ADDR txtNoMouse
+
     mov edi, eax
+
 
 StatusCenter:
 
     invoke AppendCString, edi, ADDR txtCenter
+
     mov edi, eax
+
 
     invoke AppendFixed2, edi, ADDR centerX
+
     mov edi, eax
+
 
     invoke AppendCString, edi, ADDR txtComma
+
     mov edi, eax
+
 
     invoke AppendFixed2, edi, ADDR centerY
+
     mov edi, eax
+
 
     invoke AppendCString, edi, ADDR txtCloseParen
+
     mov edi, eax
+
 
     invoke AppendCString, edi, ADDR txtZoom
+
     mov edi, eax
+
 
     invoke AppendFixed2, edi, ADDR zoomHalfRange
+
     mov edi, eax
+
 
     invoke AppendCString, edi, ADDR txtGrid
+
     mov edi, eax
 
+
     invoke AppendFixed2, edi, ADDR gridStep
+
     mov edi, eax
+
 
     invoke AppendCString, edi, ADDR txtControls
 
+
     cmp hStatus, 0
+
     je StatusDone
 
-    invoke SetWindowTextA, hStatus, ADDR statusText
+
+    invoke SetWindowTextA, \
+        hStatus, \
+        ADDR statusText
+
 
 StatusDone:
 
@@ -914,88 +1285,290 @@ StatusDone:
 
     ret
 
+
 UpdateStatusText ENDP
 
 
 ; ============================================================
-; SELECT ADAPTIVE GRID STEP
-;
-; Zoom <= 1   : .1
-; Zoom <= 2   : .2
-; Zoom <= 5   : .5
-; Zoom <= 10  : 1
-; Zoom <= 20  : 2
-; otherwise   : 5
+; SELECT GRID STEP
 ; ============================================================
 
 UpdateGridStep PROC STDCALL
 
     fld DWORD PTR zoomHalfRange
+
     fcomp DWORD PTR gridThreshold01
+
     fnstsw ax
     sahf
+
     jbe GridUse01
 
+
     fld DWORD PTR zoomHalfRange
+
     fcomp DWORD PTR gridThreshold02
+
     fnstsw ax
     sahf
+
     jbe GridUse02
 
+
     fld DWORD PTR zoomHalfRange
+
     fcomp DWORD PTR gridThreshold05
+
     fnstsw ax
     sahf
+
     jbe GridUse05
 
+
     fld DWORD PTR zoomHalfRange
+
     fcomp DWORD PTR gridThreshold10
+
     fnstsw ax
     sahf
+
     jbe GridUse10
 
+
     fld DWORD PTR zoomHalfRange
+
     fcomp DWORD PTR gridThreshold20
+
     fnstsw ax
     sahf
+
     jbe GridUse20
 
+
     fld DWORD PTR gridStep50
+
     fstp DWORD PTR gridStep
 
+
     ret
+
 
 GridUse01:
 
     fld DWORD PTR gridStep01
+
     fstp DWORD PTR gridStep
+
     ret
+
 
 GridUse02:
 
     fld DWORD PTR gridStep02
+
     fstp DWORD PTR gridStep
+
     ret
+
 
 GridUse05:
 
     fld DWORD PTR gridStep05
+
     fstp DWORD PTR gridStep
+
     ret
+
 
 GridUse10:
 
     fld DWORD PTR gridStep10
+
     fstp DWORD PTR gridStep
+
     ret
+
 
 GridUse20:
 
     fld DWORD PTR gridStep20
+
     fstp DWORD PTR gridStep
+
     ret
 
+
 UpdateGridStep ENDP
+
+
+; ============================================================
+; INITIALIZE OPENGL BITMAP FONT
+; ============================================================
+
+InitializeBitmapFont PROC STDCALL
+
+    ; Allocate OpenGL display lists.
+
+    invoke glGenLists, FONT_CHAR_COUNT
+
+
+    test eax, eax
+
+    jz FontInitFailed
+
+
+    mov fontBase, eax
+
+
+    ; Use standard Windows fixed font.
+
+    invoke GetStockObject, ANSI_FIXED_FONT
+
+
+    test eax, eax
+
+    jz FontDeleteLists
+
+
+    mov hBitmapFont, eax
+
+
+    invoke SelectObject, \
+        hDC, \
+        hBitmapFont
+
+
+    mov hOldFont, eax
+
+
+    ; Build display lists for ASCII 32..127.
+
+    invoke wglUseFontBitmapsA, \
+        hDC, \
+        FONT_FIRST_CHAR, \
+        FONT_CHAR_COUNT, \
+        fontBase
+
+
+    test eax, eax
+
+    jz FontRestoreFailed
+
+
+    ; Restore previous GDI font.
+
+    cmp hOldFont, 0
+
+    je FontInitSuccess
+
+
+    invoke SelectObject, \
+        hDC, \
+        hOldFont
+
+
+FontInitSuccess:
+
+    mov eax, 1
+
+    ret
+
+
+FontRestoreFailed:
+
+    cmp hOldFont, 0
+
+    je FontDeleteLists
+
+
+    invoke SelectObject, \
+        hDC, \
+        hOldFont
+
+
+FontDeleteLists:
+
+    cmp fontBase, 0
+
+    je FontInitFailed
+
+
+    invoke glDeleteLists, \
+        fontBase, \
+        FONT_CHAR_COUNT
+
+
+    mov fontBase, 0
+
+
+FontInitFailed:
+
+    xor eax, eax
+
+    ret
+
+
+InitializeBitmapFont ENDP
+
+
+; ============================================================
+; DRAW OPENGL TEXT AT WORLD COORDINATE
+;
+; xBits / yBits are REAL4 bit patterns.
+; ============================================================
+
+DrawTextWorld PROC STDCALL \
+    textPtr:DWORD, \
+    xBits:DWORD, \
+    yBits:DWORD
+
+    push ebx
+
+
+    cmp fontBase, 0
+
+    je DrawTextDone
+
+
+    invoke CStringLength, textPtr
+
+
+    test eax, eax
+
+    jz DrawTextDone
+
+
+    mov ebx, eax
+
+
+    invoke glRasterPos2f, \
+        xBits, \
+        yBits
+
+
+    mov eax, fontBase
+
+
+    sub eax, FONT_FIRST_CHAR
+
+
+    invoke glListBase, eax
+
+
+    invoke glCallLists, \
+        ebx, \
+        GL_UNSIGNED_BYTE, \
+        textPtr
+
+
+DrawTextDone:
+
+    pop ebx
+
+    ret
+
+
+DrawTextWorld ENDP
 
 
 ; ============================================================
@@ -1006,11 +1579,13 @@ GetOperatorPrecedence PROC STDCALL opValue:DWORD
 
     mov eax, opValue
 
+
     cmp al, '+'
     je Prec1
 
     cmp al, '-'
     je Prec1
+
 
     cmp al, '*'
     je Prec2
@@ -1018,30 +1593,43 @@ GetOperatorPrecedence PROC STDCALL opValue:DWORD
     cmp al, '/'
     je Prec2
 
+
     cmp al, OP_NEG
     je Prec3
+
 
     cmp al, '^'
     je Prec4
 
+
     xor eax, eax
+
     ret
 
+
 Prec1:
+
     mov eax, 1
     ret
 
+
 Prec2:
+
     mov eax, 2
     ret
 
+
 Prec3:
+
     mov eax, 3
     ret
 
+
 Prec4:
+
     mov eax, 4
     ret
+
 
 GetOperatorPrecedence ENDP
 
@@ -1054,125 +1642,187 @@ PushOperatorMarker PROC STDCALL marker:DWORD
 
     mov ecx, operatorTop
 
+
     cmp ecx, MAX_OPERATOR_STACK
+
     jae PushMarkerFailed
+
 
     mov eax, marker
 
+
     mov BYTE PTR [operatorStack + ecx], al
+
 
     inc ecx
 
+
     mov operatorTop, ecx
 
+
     mov eax, 1
+
+
     ret
+
 
 PushMarkerFailed:
 
     xor eax, eax
+
     ret
+
 
 PushOperatorMarker ENDP
 
 
 ; ============================================================
-; EMIT RPN OPERATOR
+; EMIT RPN TOKEN
 ; ============================================================
 
 EmitOperatorToken PROC STDCALL opValue:DWORD
 
     mov ecx, rpnCount
 
+
     cmp ecx, MAX_RPN_TOKENS
+
     jae EmitFailed
 
+
     mov eax, opValue
+
 
     cmp al, '+'
     je EmitAdd
 
+
     cmp al, '-'
     je EmitSub
+
 
     cmp al, '*'
     je EmitMul
 
+
     cmp al, '/'
     je EmitDiv
+
 
     cmp al, '^'
     je EmitPow
 
+
     cmp al, OP_NEG
     je EmitNeg
+
 
     cmp al, OP_SIN
     je EmitSin
 
+
     cmp al, OP_COS
     je EmitCos
+
 
     cmp al, OP_TAN
     je EmitTan
 
+
     cmp al, OP_SQRT
     je EmitSqrt
 
+
     jmp EmitFailed
 
+
 EmitAdd:
+
     mov BYTE PTR [rpnTypes + ecx], TOKEN_ADD
+
     jmp EmitSuccess
+
 
 EmitSub:
+
     mov BYTE PTR [rpnTypes + ecx], TOKEN_SUB
+
     jmp EmitSuccess
+
 
 EmitMul:
+
     mov BYTE PTR [rpnTypes + ecx], TOKEN_MUL
+
     jmp EmitSuccess
+
 
 EmitDiv:
+
     mov BYTE PTR [rpnTypes + ecx], TOKEN_DIV
+
     jmp EmitSuccess
+
 
 EmitPow:
+
     mov BYTE PTR [rpnTypes + ecx], TOKEN_POW
+
     jmp EmitSuccess
+
 
 EmitNeg:
+
     mov BYTE PTR [rpnTypes + ecx], TOKEN_NEG
+
     jmp EmitSuccess
+
 
 EmitSin:
+
     mov BYTE PTR [rpnTypes + ecx], TOKEN_SIN
+
     jmp EmitSuccess
+
 
 EmitCos:
+
     mov BYTE PTR [rpnTypes + ecx], TOKEN_COS
+
     jmp EmitSuccess
+
 
 EmitTan:
+
     mov BYTE PTR [rpnTypes + ecx], TOKEN_TAN
+
     jmp EmitSuccess
 
+
 EmitSqrt:
+
     mov BYTE PTR [rpnTypes + ecx], TOKEN_SQRT
+
 
 EmitSuccess:
 
     inc ecx
 
+
     mov rpnCount, ecx
 
+
     mov eax, 1
+
     ret
+
 
 EmitFailed:
 
     xor eax, eax
+
     ret
+
 
 EmitOperatorToken ENDP
 
@@ -1189,88 +1839,123 @@ CompileExpression PROC STDCALL
     push ecx
     push edx
 
+
     mov rpnCount, 0
+
     mov operatorTop, 0
 
     mov parserExpectOperand, 1
+
     mov parserNeedFunctionParen, 0
 
+
     mov esi, OFFSET expressionText
+
 
 ParseLoop:
 
     mov al, BYTE PTR [esi]
 
+
     cmp al, 0
+
     je ParseEnd
 
+
     cmp al, ' '
+
     je ParseAdvance
+
 
     cmp al, 9
+
     je ParseAdvance
 
+
     cmp parserNeedFunctionParen, 0
+
     je ParseNormal
 
+
     cmp al, '('
+
     jne ParseFailed
+
 
     mov parserNeedFunctionParen, 0
 
+
     jmp ParseLeftParenthesis
+
 
 ParseNormal:
 
     cmp al, 'x'
     je ParseVariable
 
+
     cmp al, 'X'
     je ParseVariable
+
 
     cmp al, '('
     je ParseLeftParenthesis
 
+
     cmp al, ')'
     je ParseRightParenthesis
+
 
     cmp al, '0'
     jb ParseCheckDecimal
 
+
     cmp al, '9'
     jbe ParseNumber
+
 
 ParseCheckDecimal:
 
     cmp al, '.'
     je ParseNumber
 
+
     mov dl, al
+
     or dl, 20h
+
 
     cmp dl, 's'
     je ParseSFunction
 
+
     cmp dl, 'c'
     je ParseCosFunction
+
 
     cmp dl, 't'
     je ParseTanFunction
 
+
     cmp al, '+'
     je ParsePlus
+
 
     cmp al, '-'
     je ParseMinus
 
+
     cmp al, '*'
     je ParseBinaryOperator
+
 
     cmp al, '/'
     je ParseBinaryOperator
 
+
     cmp al, '^'
     je ParseBinaryOperator
+
 
     jmp ParseFailed
 
@@ -1279,32 +1964,43 @@ ParseAdvance:
 
     inc esi
 
+
     jmp ParseLoop
 
 
 ; ============================================================
-; VARIABLE
+; VARIABLE X
 ; ============================================================
 
 ParseVariable:
 
     cmp parserExpectOperand, 1
+
     jne ParseFailed
+
 
     mov ecx, rpnCount
 
+
     cmp ecx, MAX_RPN_TOKENS
+
     jae ParseFailed
+
 
     mov BYTE PTR [rpnTypes + ecx], TOKEN_X
 
+
     inc ecx
+
 
     mov rpnCount, ecx
 
+
     mov parserExpectOperand, 0
 
+
     inc esi
+
 
     jmp ParseLoop
 
@@ -1316,28 +2012,43 @@ ParseVariable:
 ParseSFunction:
 
     cmp parserExpectOperand, 1
+
     jne ParseFailed
+
 
     mov al, BYTE PTR [esi + 1]
+
     or al, 20h
+
 
     cmp al, 'i'
+
     jne ParseCheckSqrt
 
+
     mov al, BYTE PTR [esi + 2]
+
     or al, 20h
 
+
     cmp al, 'n'
+
     jne ParseFailed
+
 
     invoke PushOperatorMarker, OP_SIN
 
+
     test eax, eax
+
     jz ParseFailed
+
 
     add esi, 3
 
+
     mov parserNeedFunctionParen, 1
+
 
     jmp ParseLoop
 
@@ -1345,31 +2056,48 @@ ParseSFunction:
 ParseCheckSqrt:
 
     mov al, BYTE PTR [esi + 1]
+
     or al, 20h
+
 
     cmp al, 'q'
+
     jne ParseFailed
+
 
     mov al, BYTE PTR [esi + 2]
+
     or al, 20h
+
 
     cmp al, 'r'
+
     jne ParseFailed
+
 
     mov al, BYTE PTR [esi + 3]
+
     or al, 20h
 
+
     cmp al, 't'
+
     jne ParseFailed
+
 
     invoke PushOperatorMarker, OP_SQRT
 
+
     test eax, eax
+
     jz ParseFailed
+
 
     add esi, 4
 
+
     mov parserNeedFunctionParen, 1
+
 
     jmp ParseLoop
 
@@ -1381,28 +2109,43 @@ ParseCheckSqrt:
 ParseCosFunction:
 
     cmp parserExpectOperand, 1
+
     jne ParseFailed
+
 
     mov al, BYTE PTR [esi + 1]
+
     or al, 20h
+
 
     cmp al, 'o'
+
     jne ParseFailed
+
 
     mov al, BYTE PTR [esi + 2]
+
     or al, 20h
 
+
     cmp al, 's'
+
     jne ParseFailed
+
 
     invoke PushOperatorMarker, OP_COS
 
+
     test eax, eax
+
     jz ParseFailed
+
 
     add esi, 3
 
+
     mov parserNeedFunctionParen, 1
+
 
     jmp ParseLoop
 
@@ -1414,155 +2157,222 @@ ParseCosFunction:
 ParseTanFunction:
 
     cmp parserExpectOperand, 1
+
     jne ParseFailed
+
 
     mov al, BYTE PTR [esi + 1]
+
     or al, 20h
+
 
     cmp al, 'a'
+
     jne ParseFailed
+
 
     mov al, BYTE PTR [esi + 2]
+
     or al, 20h
 
+
     cmp al, 'n'
+
     jne ParseFailed
+
 
     invoke PushOperatorMarker, OP_TAN
 
+
     test eax, eax
+
     jz ParseFailed
+
 
     add esi, 3
 
+
     mov parserNeedFunctionParen, 1
+
 
     jmp ParseLoop
 
 
 ; ============================================================
-; LEFT PARENTHESIS
+; (
 ; ============================================================
 
 ParseLeftParenthesis:
 
     cmp parserExpectOperand, 1
+
     jne ParseFailed
+
 
     invoke PushOperatorMarker, '('
 
+
     test eax, eax
+
     jz ParseFailed
 
+
     inc esi
+
 
     jmp ParseLoop
 
 
 ; ============================================================
-; RIGHT PARENTHESIS
+; )
 ; ============================================================
 
 ParseRightParenthesis:
 
     cmp parserExpectOperand, 0
+
     jne ParseFailed
+
 
 RightParenPop:
 
     mov ecx, operatorTop
 
+
     test ecx, ecx
+
     jz ParseFailed
+
 
     dec ecx
 
+
     mov al, BYTE PTR [operatorStack + ecx]
 
+
     cmp al, '('
+
     je RightParenFound
+
 
     mov operatorTop, ecx
 
+
     movzx eax, al
+
 
     invoke EmitOperatorToken, eax
 
+
     test eax, eax
+
     jz ParseFailed
 
+
     jmp RightParenPop
+
 
 RightParenFound:
 
     mov operatorTop, ecx
 
+
     inc esi
+
 
 RightParenFunctionCheck:
 
     mov ecx, operatorTop
 
+
     test ecx, ecx
+
     jz RightParenUnaryCheck
+
 
     dec ecx
 
+
     mov al, BYTE PTR [operatorStack + ecx]
+
 
     cmp al, OP_SIN
     je RightParenEmitFunction
 
+
     cmp al, OP_COS
     je RightParenEmitFunction
+
 
     cmp al, OP_TAN
     je RightParenEmitFunction
 
+
     cmp al, OP_SQRT
     je RightParenEmitFunction
 
+
     jmp RightParenUnaryCheck
+
 
 RightParenEmitFunction:
 
     mov operatorTop, ecx
 
+
     movzx eax, al
+
 
     invoke EmitOperatorToken, eax
 
+
     test eax, eax
+
     jz ParseFailed
+
 
 RightParenUnaryCheck:
 
     mov ecx, operatorTop
 
+
     test ecx, ecx
+
     jz RightParenDone
+
 
     dec ecx
 
+
     mov al, BYTE PTR [operatorStack + ecx]
 
+
     cmp al, OP_NEG
+
     jne RightParenDone
+
 
     mov operatorTop, ecx
 
+
     movzx eax, al
+
 
     invoke EmitOperatorToken, eax
 
+
     test eax, eax
+
     jz ParseFailed
 
+
     jmp RightParenUnaryCheck
+
 
 RightParenDone:
 
     mov parserExpectOperand, 0
+
 
     jmp ParseLoop
 
@@ -1574,123 +2384,179 @@ RightParenDone:
 ParseNumber:
 
     cmp parserExpectOperand, 1
+
     jne ParseFailed
 
+
     fld DWORD PTR floatZero
+
     fstp DWORD PTR parserNumber
 
+
     fld DWORD PTR floatPointOne
+
     fstp DWORD PTR parserFractionScale
 
+
     mov parserDigitSeen, 0
+
     mov parserDecimalSeen, 0
+
 
 NumberLoop:
 
     mov al, BYTE PTR [esi]
 
+
     cmp al, '0'
+
     jb NumberCheckDot
 
+
     cmp al, '9'
+
     ja NumberCheckDot
+
 
     movzx eax, al
 
+
     sub eax, '0'
+
 
     mov parserDigitInt, eax
 
+
     mov parserDigitSeen, 1
 
+
     cmp parserDecimalSeen, 0
+
     jne NumberFraction
+
 
     fld DWORD PTR parserNumber
 
+
     fimul DWORD PTR integerTen
+
 
     fiadd DWORD PTR parserDigitInt
 
+
     fstp DWORD PTR parserNumber
+
 
     inc esi
 
+
     jmp NumberLoop
+
 
 NumberFraction:
 
     fild DWORD PTR parserDigitInt
 
+
     fmul DWORD PTR parserFractionScale
+
 
     fadd DWORD PTR parserNumber
 
+
     fstp DWORD PTR parserNumber
+
 
     fld DWORD PTR parserFractionScale
 
+
     fmul DWORD PTR floatPointOne
+
 
     fstp DWORD PTR parserFractionScale
 
+
     inc esi
 
+
     jmp NumberLoop
+
 
 NumberCheckDot:
 
     cmp al, '.'
+
     jne NumberFinished
 
+
     cmp parserDecimalSeen, 0
+
     jne NumberFinished
+
 
     mov parserDecimalSeen, 1
 
+
     inc esi
 
+
     jmp NumberLoop
+
 
 NumberFinished:
 
     cmp parserDigitSeen, 1
+
     jne ParseFailed
+
 
     mov edi, rpnCount
 
+
     cmp edi, MAX_RPN_TOKENS
+
     jae ParseFailed
+
 
     mov BYTE PTR [rpnTypes + edi], TOKEN_CONST
 
+
     fld DWORD PTR parserNumber
+
 
     fstp DWORD PTR [rpnValues + edi*4]
 
+
     inc edi
+
 
     mov rpnCount, edi
 
+
     mov parserExpectOperand, 0
+
 
     jmp ParseLoop
 
 
 ; ============================================================
-; PLUS / MINUS
+; + / -
 ; ============================================================
 
 ParsePlus:
 
     cmp parserExpectOperand, 1
+
     je ParseUnaryPlus
 
+
     jmp ParseBinaryOperator
+
 
 ParseUnaryPlus:
 
     inc esi
+
 
     jmp ParseLoop
 
@@ -1698,102 +2564,149 @@ ParseUnaryPlus:
 ParseMinus:
 
     cmp parserExpectOperand, 1
+
     je ParseUnaryMinus
 
+
     jmp ParseBinaryOperator
+
 
 ParseUnaryMinus:
 
     invoke PushOperatorMarker, OP_NEG
 
+
     test eax, eax
+
     jz ParseFailed
 
+
     inc esi
+
 
     jmp ParseLoop
 
 
 ; ============================================================
-; BINARY OPERATOR
+; BINARY OPERATORS
 ; ============================================================
 
 ParseBinaryOperator:
 
     cmp parserExpectOperand, 0
+
     jne ParseFailed
+
 
     mov currentOperator, al
 
+
     movzx eax, BYTE PTR currentOperator
+
 
     invoke GetOperatorPrecedence, eax
 
+
     mov ebx, eax
+
 
 BinaryPopLoop:
 
     mov ecx, operatorTop
 
+
     test ecx, ecx
+
     jz PushBinaryOperator
+
 
     dec ecx
 
+
     mov al, BYTE PTR [operatorStack + ecx]
 
+
     cmp al, '('
+
     je PushBinaryOperator
+
 
     movzx eax, al
 
+
     invoke GetOperatorPrecedence, eax
 
+
     test eax, eax
+
     jz PushBinaryOperator
 
+
+    ; ^ is right associative
+
     cmp currentOperator, '^'
+
     jne BinaryNormalAssociativity
 
+
     cmp eax, ebx
+
     jbe PushBinaryOperator
 
+
     jmp BinaryPopOperator
+
 
 BinaryNormalAssociativity:
 
     cmp eax, ebx
+
     jb PushBinaryOperator
+
 
 BinaryPopOperator:
 
     mov ecx, operatorTop
 
+
     dec ecx
+
 
     movzx eax, BYTE PTR [operatorStack + ecx]
 
+
     mov operatorTop, ecx
+
 
     invoke EmitOperatorToken, eax
 
+
     test eax, eax
+
     jz ParseFailed
 
+
     jmp BinaryPopLoop
+
 
 PushBinaryOperator:
 
     movzx eax, BYTE PTR currentOperator
 
+
     invoke PushOperatorMarker, eax
 
+
     test eax, eax
+
     jz ParseFailed
+
 
     mov parserExpectOperand, 1
 
+
     inc esi
+
 
     jmp ParseLoop
 
@@ -1805,60 +2718,85 @@ PushBinaryOperator:
 ParseEnd:
 
     cmp parserNeedFunctionParen, 0
+
     jne ParseFailed
+
 
     cmp parserExpectOperand, 0
+
     jne ParseFailed
 
+
     cmp rpnCount, 0
+
     je ParseFailed
+
 
 FlushOperatorStack:
 
     mov ecx, operatorTop
 
+
     test ecx, ecx
+
     jz CompileSuccess
+
 
     dec ecx
 
+
     mov al, BYTE PTR [operatorStack + ecx]
+
 
     cmp al, '('
     je ParseFailed
 
+
     cmp al, OP_SIN
     je ParseFailed
+
 
     cmp al, OP_COS
     je ParseFailed
 
+
     cmp al, OP_TAN
     je ParseFailed
+
 
     cmp al, OP_SQRT
     je ParseFailed
 
+
     mov operatorTop, ecx
+
 
     movzx eax, al
 
+
     invoke EmitOperatorToken, eax
 
+
     test eax, eax
+
     jz ParseFailed
 
+
     jmp FlushOperatorStack
+
 
 CompileSuccess:
 
     mov eax, 1
 
+
     jmp CompileExit
+
 
 ParseFailed:
 
     xor eax, eax
+
 
 CompileExit:
 
@@ -1868,13 +2806,15 @@ CompileExit:
     pop edi
     pop esi
 
+
     ret
+
 
 CompileExpression ENDP
 
 
 ; ============================================================
-; EVALUATE RPN
+; RPN EVALUATOR
 ; ============================================================
 
 EvaluateCurrentFunction PROC STDCALL
@@ -1885,57 +2825,78 @@ EvaluateCurrentFunction PROC STDCALL
     push ecx
     push edx
 
+
     mov evalStackTop, 0
+
 
     xor esi, esi
 
+
     mov edi, rpnCount
 
+
     test edi, edi
+
     jz EvaluationFailed
+
 
 EvaluationLoop:
 
     cmp esi, edi
+
     jae EvaluationFinished
 
+
     movzx eax, BYTE PTR [rpnTypes + esi]
+
 
     cmp eax, TOKEN_CONST
     je EvaluateConstant
 
+
     cmp eax, TOKEN_X
     je EvaluateVariable
+
 
     cmp eax, TOKEN_NEG
     je EvaluateNeg
 
+
     cmp eax, TOKEN_SIN
     je EvaluateSin
+
 
     cmp eax, TOKEN_COS
     je EvaluateCos
 
+
     cmp eax, TOKEN_TAN
     je EvaluateTan
+
 
     cmp eax, TOKEN_SQRT
     je EvaluateSqrt
 
+
     cmp eax, TOKEN_ADD
     je EvaluateBinary
+
 
     cmp eax, TOKEN_SUB
     je EvaluateBinary
 
+
     cmp eax, TOKEN_MUL
     je EvaluateBinary
+
 
     cmp eax, TOKEN_DIV
     je EvaluateBinary
 
+
     cmp eax, TOKEN_POW
     je EvaluateBinary
+
 
     jmp EvaluationFailed
 
@@ -1944,16 +2905,23 @@ EvaluateConstant:
 
     mov ecx, evalStackTop
 
+
     cmp ecx, MAX_EVAL_STACK
+
     jae EvaluationFailed
+
 
     mov edx, DWORD PTR [rpnValues + esi*4]
 
+
     mov DWORD PTR [evalStack + ecx*4], edx
+
 
     inc ecx
 
+
     mov evalStackTop, ecx
+
 
     jmp EvaluationNext
 
@@ -1962,16 +2930,23 @@ EvaluateVariable:
 
     mov ecx, evalStackTop
 
+
     cmp ecx, MAX_EVAL_STACK
+
     jae EvaluationFailed
+
 
     mov edx, DWORD PTR currentX
 
+
     mov DWORD PTR [evalStack + ecx*4], edx
+
 
     inc ecx
 
+
     mov evalStackTop, ecx
+
 
     jmp EvaluationNext
 
@@ -1980,16 +2955,23 @@ EvaluateNeg:
 
     mov ecx, evalStackTop
 
+
     cmp ecx, 1
+
     jb EvaluationFailed
+
 
     dec ecx
 
+
     fld DWORD PTR [evalStack + ecx*4]
+
 
     fchs
 
+
     fstp DWORD PTR [evalStack + ecx*4]
+
 
     jmp EvaluationNext
 
@@ -1998,16 +2980,23 @@ EvaluateSin:
 
     mov ecx, evalStackTop
 
+
     cmp ecx, 1
+
     jb EvaluationFailed
+
 
     dec ecx
 
+
     fld DWORD PTR [evalStack + ecx*4]
+
 
     fsin
 
+
     fstp DWORD PTR [evalStack + ecx*4]
+
 
     jmp EvaluationNext
 
@@ -2016,16 +3005,23 @@ EvaluateCos:
 
     mov ecx, evalStackTop
 
+
     cmp ecx, 1
+
     jb EvaluationFailed
+
 
     dec ecx
 
+
     fld DWORD PTR [evalStack + ecx*4]
+
 
     fcos
 
+
     fstp DWORD PTR [evalStack + ecx*4]
+
 
     jmp EvaluationNext
 
@@ -2034,14 +3030,20 @@ EvaluateTan:
 
     mov ecx, evalStackTop
 
+
     cmp ecx, 1
+
     jb EvaluationFailed
+
 
     dec ecx
 
+
     mov eax, DWORD PTR [evalStack + ecx*4]
 
+
     mov DWORD PTR functionInput, eax
+
 
     fld DWORD PTR functionInput
 
@@ -2049,11 +3051,13 @@ EvaluateTan:
 
     fstp DWORD PTR functionSin
 
+
     fld DWORD PTR functionInput
 
     fcos
 
     fstp DWORD PTR functionCos
+
 
     fld DWORD PTR functionCos
 
@@ -2062,15 +3066,19 @@ EvaluateTan:
     fcomp DWORD PTR tanEpsilon
 
     fnstsw ax
+
     sahf
 
+
     jb EvaluationFailed
+
 
     fld DWORD PTR functionSin
 
     fdiv DWORD PTR functionCos
 
     fstp DWORD PTR [evalStack + ecx*4]
+
 
     jmp EvaluationNext
 
@@ -2079,19 +3087,26 @@ EvaluateSqrt:
 
     mov ecx, evalStackTop
 
+
     cmp ecx, 1
+
     jb EvaluationFailed
 
+
     dec ecx
+
 
     fld DWORD PTR [evalStack + ecx*4]
 
     fcomp DWORD PTR floatZero
 
     fnstsw ax
+
     sahf
 
+
     jb EvaluationFailed
+
 
     fld DWORD PTR [evalStack + ecx*4]
 
@@ -2099,57 +3114,78 @@ EvaluateSqrt:
 
     fstp DWORD PTR [evalStack + ecx*4]
 
+
     jmp EvaluationNext
 
 
 ; ============================================================
-; BINARY OPERATORS
+; BINARY
 ; ============================================================
 
 EvaluateBinary:
 
     mov ebx, eax
 
+
     mov ecx, evalStackTop
 
+
     cmp ecx, 2
+
     jb EvaluationFailed
+
 
     sub ecx, 2
 
+
     mov edx, DWORD PTR [evalStack + ecx*4 + 4]
+
 
     mov DWORD PTR evalOperandB, edx
 
+
     cmp ebx, TOKEN_POW
+
     je ExecutePower
 
+
     cmp ebx, TOKEN_DIV
+
     jne LoadBinaryA
+
 
     mov eax, edx
 
+
     and eax, 7FFFFFFFh
 
+
     jz EvaluationFailed
+
 
 LoadBinaryA:
 
     fld DWORD PTR [evalStack + ecx*4]
 
+
     cmp ebx, TOKEN_ADD
     je ExecuteAdd
+
 
     cmp ebx, TOKEN_SUB
     je ExecuteSub
 
+
     cmp ebx, TOKEN_MUL
     je ExecuteMul
+
 
     cmp ebx, TOKEN_DIV
     je ExecuteDiv
 
+
     fstp st(0)
+
 
     jmp EvaluationFailed
 
@@ -2184,120 +3220,176 @@ StoreBinaryResult:
 
     fstp DWORD PTR [evalStack + ecx*4]
 
+
     inc ecx
 
+
     mov evalStackTop, ecx
+
 
     jmp EvaluationNext
 
 
 ; ============================================================
-; INTEGER POWER
+; POWER
 ; ============================================================
 
 ExecutePower:
 
     mov eax, DWORD PTR evalOperandB
 
+
     mov edx, eax
+
 
     and edx, 7F800000h
 
+
     cmp edx, 7F800000h
+
     je EvaluationFailed
+
 
     fld DWORD PTR evalOperandB
 
+
     fistp DWORD PTR powerExponentInt
+
 
     fild DWORD PTR powerExponentInt
 
+
     fcomp DWORD PTR evalOperandB
 
+
     fnstsw ax
+
+
     sahf
+
 
     jne EvaluationFailed
 
+
     mov eax, powerExponentInt
 
+
     cmp eax, MAX_POWER_ABS
+
     jg EvaluationFailed
 
+
     cmp eax, -MAX_POWER_ABS
+
     jl EvaluationFailed
+
 
     mov eax, DWORD PTR [evalStack + ecx*4]
 
+
     mov DWORD PTR powerBase, eax
+
 
     fld DWORD PTR floatOne
 
+
     fstp DWORD PTR powerResult
+
 
     mov powerNegative, 0
 
+
     mov eax, powerExponentInt
 
+
     test eax, eax
+
     jz PowerFinished
+
 
     jg PowerPositive
 
+
     mov powerNegative, 1
+
 
     mov edx, DWORD PTR powerBase
 
+
     and edx, 7FFFFFFFh
+
 
     jz EvaluationFailed
 
+
     neg eax
 
+
 PowerPositive:
+
 
 PowerLoop:
 
     test eax, eax
+
     jz PowerMultiplicationFinished
+
 
     fld DWORD PTR powerResult
 
+
     fmul DWORD PTR powerBase
+
 
     fstp DWORD PTR powerResult
 
+
     dec eax
 
+
     jmp PowerLoop
+
 
 PowerMultiplicationFinished:
 
     cmp powerNegative, 0
+
     je PowerFinished
+
 
     fld DWORD PTR floatOne
 
+
     fdiv DWORD PTR powerResult
 
+
     fstp DWORD PTR powerResult
+
 
 PowerFinished:
 
     mov eax, DWORD PTR powerResult
 
+
     mov edx, eax
+
 
     and edx, 7F800000h
 
+
     cmp edx, 7F800000h
+
     je EvaluationFailed
+
 
     mov DWORD PTR [evalStack + ecx*4], eax
 
+
     inc ecx
 
+
     mov evalStackTop, ecx
+
 
     jmp EvaluationNext
 
@@ -2306,26 +3398,36 @@ EvaluationNext:
 
     inc esi
 
+
     jmp EvaluationLoop
 
 
 EvaluationFinished:
 
     cmp evalStackTop, 1
+
     jne EvaluationFailed
+
 
     mov eax, DWORD PTR [evalStack]
 
+
     mov edx, eax
+
 
     and edx, 7F800000h
 
+
     cmp edx, 7F800000h
+
     je EvaluationFailed
+
 
     mov DWORD PTR currentY, eax
 
+
     mov eax, 1
+
 
     jmp EvaluationExit
 
@@ -2343,7 +3445,9 @@ EvaluationExit:
     pop edi
     pop esi
 
+
     ret
+
 
 EvaluateCurrentFunction ENDP
 
@@ -2359,23 +3463,32 @@ ApplyExpression PROC STDCALL
         ADDR expressionText, \
         MAX_EXPRESSION_LENGTH
 
+
     invoke CompileExpression
 
+
     test eax, eax
+
     jz ApplyExpressionFailed
+
 
     invoke CopyCString, \
         ADDR lastGoodExpression, \
         ADDR expressionText, \
         MAX_EXPRESSION_LENGTH
 
+
     invoke SetFocus, hMainWnd
+
 
     invoke RenderScene
 
+
     mov eax, 1
 
+
     ret
+
 
 ApplyExpressionFailed:
 
@@ -2384,11 +3497,14 @@ ApplyExpressionFailed:
         ADDR lastGoodExpression, \
         MAX_EXPRESSION_LENGTH
 
+
     invoke SetWindowTextA, \
         hExpressionEdit, \
         ADDR expressionText
 
+
     invoke CompileExpression
+
 
     invoke MessageBoxA, \
         hMainWnd, \
@@ -2396,96 +3512,174 @@ ApplyExpressionFailed:
         ADDR errorTitle, \
         MB_OK OR MB_ICONERROR
 
+
     invoke SetFocus, hExpressionEdit
+
 
     xor eax, eax
 
+
     ret
+
 
 ApplyExpression ENDP
 
 
 ; ============================================================
-; UPDATE CAMERA
+; UPDATE VIEW
 ; ============================================================
 
 UpdateViewState PROC STDCALL
 
     cmp clientW, 0
+
     je UpdateViewDone
 
+
     cmp graphH, 0
+
     je UpdateViewDone
+
 
     mov eax, clientW
 
+
     cmp eax, graphH
+
     jae ViewWide
+
 
 ViewTall:
 
     fld DWORD PTR zoomHalfRange
+
+
     fstp DWORD PTR viewHalfX
 
+
     fld DWORD PTR zoomHalfRange
+
+
     fimul DWORD PTR graphH
+
+
     fidiv DWORD PTR clientW
+
+
     fstp DWORD PTR viewHalfY
 
+
     jmp CalculateViewBounds
+
 
 ViewWide:
 
     fld DWORD PTR zoomHalfRange
+
+
     fstp DWORD PTR viewHalfY
 
+
     fld DWORD PTR zoomHalfRange
+
+
     fimul DWORD PTR clientW
+
+
     fidiv DWORD PTR graphH
+
+
     fstp DWORD PTR viewHalfX
+
 
 CalculateViewBounds:
 
     fld DWORD PTR centerX
+
     fsub DWORD PTR viewHalfX
+
     fstp DWORD PTR viewLeft
 
+
     fld DWORD PTR centerX
+
     fadd DWORD PTR viewHalfX
+
     fstp DWORD PTR viewRight
 
+
     fld DWORD PTR centerY
+
     fsub DWORD PTR viewHalfY
+
     fstp DWORD PTR viewBottom
 
+
     fld DWORD PTR centerY
+
     fadd DWORD PTR viewHalfY
+
     fstp DWORD PTR viewTop
 
+
     fld DWORD PTR floatOne
+
     fdiv DWORD PTR viewHalfX
+
     fstp DWORD PTR viewScaleX
 
+
     fld DWORD PTR floatOne
+
     fdiv DWORD PTR viewHalfY
+
     fstp DWORD PTR viewScaleY
 
+
     fld DWORD PTR centerX
+
     fchs
+
     fstp DWORD PTR viewTranslateX
 
+
     fld DWORD PTR centerY
+
     fchs
+
     fstp DWORD PTR viewTranslateY
 
-    ; NEW:
-    ; Select grid spacing after zoom/view update.
 
     invoke UpdateGridStep
+
+
+    ; --------------------------------------------------------
+    ; Label offsets depend on grid spacing.
+    ;
+    ; X labels sit below X axis.
+    ; Y labels sit right of Y axis.
+    ; --------------------------------------------------------
+
+    fld DWORD PTR gridStep
+
+    fmul DWORD PTR labelYOffsetFactor
+
+    fchs
+
+    fstp DWORD PTR xLabelY
+
+
+    fld DWORD PTR gridStep
+
+    fmul DWORD PTR labelXOffsetFactor
+
+    fstp DWORD PTR yLabelX
+
 
 UpdateViewDone:
 
     ret
+
 
 UpdateViewState ENDP
 
@@ -2497,10 +3691,14 @@ UpdateViewState ENDP
 SetupViewport PROC STDCALL
 
     cmp clientW, 0
+
     je SetupViewportDone
 
+
     cmp graphH, 0
+
     je SetupViewportDone
+
 
     invoke glViewport, \
         0, \
@@ -2508,9 +3706,11 @@ SetupViewport PROC STDCALL
         clientW, \
         graphH
 
+
 SetupViewportDone:
 
     ret
+
 
 SetupViewport ENDP
 
@@ -2523,39 +3723,38 @@ SetupProjection PROC STDCALL
 
     invoke glMatrixMode, GL_PROJECTION
 
+
     invoke glLoadIdentity
+
 
     invoke glScalef, \
         DWORD PTR viewScaleX, \
         DWORD PTR viewScaleY, \
         DWORD PTR viewScaleZ
 
+
     invoke glTranslatef, \
         DWORD PTR viewTranslateX, \
         DWORD PTR viewTranslateY, \
         DWORD PTR floatZero
 
+
     invoke glMatrixMode, GL_MODELVIEW
+
 
     invoke glLoadIdentity
 
+
     ret
+
 
 SetupProjection ENDP
 
 
 ; ============================================================
-; ADAPTIVE GRID
+; DRAW ADAPTIVE GRID
 ;
-; coordinate = gridMultiple * gridStep
-;
-; Examples:
-;
-; gridStep=.1:
-; -1.0, -.9, -.8 ...
-;
-; gridStep=5:
-; -10, -5, 0, 5, 10 ...
+; Only visible lines are sent to OpenGL.
 ; ============================================================
 
 DrawGrid PROC STDCALL
@@ -2565,53 +3764,134 @@ DrawGrid PROC STDCALL
         DWORD PTR gridGreen, \
         DWORD PTR gridBlue
 
+
     invoke glBegin, GL_LINES
 
+
     mov gridMultiple, GRID_MULT_MIN
+
 
 GridLoop:
 
     cmp gridMultiple, 0
+
     je GridNext
 
-    ; coordinate = integer * gridStep
 
     fild DWORD PTR gridMultiple
 
+
     fmul DWORD PTR gridStep
+
 
     fstp DWORD PTR gridCoord
 
-    ; vertical
+
+; ============================================================
+; VERTICAL GRID LINE
+; ============================================================
+
+    fld DWORD PTR gridCoord
+
+
+    fcomp DWORD PTR viewLeft
+
+
+    fnstsw ax
+
+
+    sahf
+
+
+    jb GridCheckHorizontal
+
+
+    fld DWORD PTR gridCoord
+
+
+    fcomp DWORD PTR viewRight
+
+
+    fnstsw ax
+
+
+    sahf
+
+
+    ja GridCheckHorizontal
+
 
     invoke glVertex2f, \
         DWORD PTR gridCoord, \
         DWORD PTR viewBottom
 
+
     invoke glVertex2f, \
         DWORD PTR gridCoord, \
         DWORD PTR viewTop
 
-    ; horizontal
+
+; ============================================================
+; HORIZONTAL GRID LINE
+; ============================================================
+
+GridCheckHorizontal:
+
+    fld DWORD PTR gridCoord
+
+
+    fcomp DWORD PTR viewBottom
+
+
+    fnstsw ax
+
+
+    sahf
+
+
+    jb GridNext
+
+
+    fld DWORD PTR gridCoord
+
+
+    fcomp DWORD PTR viewTop
+
+
+    fnstsw ax
+
+
+    sahf
+
+
+    ja GridNext
+
 
     invoke glVertex2f, \
         DWORD PTR viewLeft, \
         DWORD PTR gridCoord
 
+
     invoke glVertex2f, \
         DWORD PTR viewRight, \
         DWORD PTR gridCoord
+
 
 GridNext:
 
     inc gridMultiple
 
+
     cmp gridMultiple, GRID_MULT_MAX
+
     jle GridLoop
+
 
     invoke glEnd
 
+
     ret
+
 
 DrawGrid ENDP
 
@@ -2627,7 +3907,9 @@ DrawAxes PROC STDCALL
         DWORD PTR axisGreen, \
         DWORD PTR axisBlue
 
+
     invoke glBegin, GL_LINES
+
 
     ; X axis
 
@@ -2635,9 +3917,11 @@ DrawAxes PROC STDCALL
         DWORD PTR viewLeft, \
         DWORD PTR floatZero
 
+
     invoke glVertex2f, \
         DWORD PTR viewRight, \
         DWORD PTR floatZero
+
 
     ; Y axis
 
@@ -2645,15 +3929,208 @@ DrawAxes PROC STDCALL
         DWORD PTR floatZero, \
         DWORD PTR viewBottom
 
+
     invoke glVertex2f, \
         DWORD PTR floatZero, \
         DWORD PTR viewTop
 
+
     invoke glEnd
+
 
     ret
 
+
 DrawAxes ENDP
+
+
+; ============================================================
+; DRAW AXIS NUMBERS
+; ============================================================
+
+DrawAxisLabels PROC STDCALL
+
+    cmp fontBase, 0
+
+    je AxisLabelsDone
+
+
+    invoke glColor3f, \
+        DWORD PTR labelRed, \
+        DWORD PTR labelGreen, \
+        DWORD PTR labelBlue
+
+
+; ============================================================
+; X-AXIS LABELS
+; ============================================================
+
+    mov gridMultiple, GRID_MULT_MIN
+
+
+XAxisLabelLoop:
+
+    cmp gridMultiple, 0
+
+    je XAxisLabelNext
+
+
+    fild DWORD PTR gridMultiple
+
+
+    fmul DWORD PTR gridStep
+
+
+    fstp DWORD PTR gridCoord
+
+
+    ; Must be horizontally visible.
+
+    fld DWORD PTR gridCoord
+
+
+    fcomp DWORD PTR viewLeft
+
+
+    fnstsw ax
+
+
+    sahf
+
+
+    jb XAxisLabelNext
+
+
+    fld DWORD PTR gridCoord
+
+
+    fcomp DWORD PTR viewRight
+
+
+    fnstsw ax
+
+
+    sahf
+
+
+    ja XAxisLabelNext
+
+
+    ; Convert coordinate to text.
+
+    invoke AppendFixed2, \
+        ADDR axisLabelBuffer, \
+        ADDR gridCoord
+
+
+    invoke DrawTextWorld, \
+        ADDR axisLabelBuffer, \
+        DWORD PTR gridCoord, \
+        DWORD PTR xLabelY
+
+
+XAxisLabelNext:
+
+    inc gridMultiple
+
+
+    cmp gridMultiple, GRID_MULT_MAX
+
+    jle XAxisLabelLoop
+
+
+; ============================================================
+; Y-AXIS LABELS
+; ============================================================
+
+    mov gridMultiple, GRID_MULT_MIN
+
+
+YAxisLabelLoop:
+
+    cmp gridMultiple, 0
+
+    je YAxisLabelNext
+
+
+    fild DWORD PTR gridMultiple
+
+
+    fmul DWORD PTR gridStep
+
+
+    fstp DWORD PTR gridCoord
+
+
+    ; Must be vertically visible.
+
+    fld DWORD PTR gridCoord
+
+
+    fcomp DWORD PTR viewBottom
+
+
+    fnstsw ax
+
+
+    sahf
+
+
+    jb YAxisLabelNext
+
+
+    fld DWORD PTR gridCoord
+
+
+    fcomp DWORD PTR viewTop
+
+
+    fnstsw ax
+
+
+    sahf
+
+
+    ja YAxisLabelNext
+
+
+    invoke AppendFixed2, \
+        ADDR axisLabelBuffer, \
+        ADDR gridCoord
+
+
+    invoke DrawTextWorld, \
+        ADDR axisLabelBuffer, \
+        DWORD PTR yLabelX, \
+        DWORD PTR gridCoord
+
+
+YAxisLabelNext:
+
+    inc gridMultiple
+
+
+    cmp gridMultiple, GRID_MULT_MAX
+
+    jle YAxisLabelLoop
+
+
+; ============================================================
+; ORIGIN
+; ============================================================
+
+    invoke DrawTextWorld, \
+        ADDR originLabel, \
+        DWORD PTR yLabelX, \
+        DWORD PTR xLabelY
+
+
+AxisLabelsDone:
+
+    ret
+
+
+DrawAxisLabels ENDP
 
 
 ; ============================================================
@@ -2664,13 +4141,18 @@ CalculateGraphStep PROC STDCALL
 
     fld DWORD PTR viewRight
 
+
     fsub DWORD PTR viewLeft
+
 
     fidiv DWORD PTR graphIntervalCount
 
+
     fstp DWORD PTR graphStepX
 
+
     ret
+
 
 CalculateGraphStep ENDP
 
@@ -2683,34 +4165,48 @@ DrawFunction PROC STDCALL
 
     push edi
 
+
     invoke glColor3f, \
         DWORD PTR graphRed, \
         DWORD PTR graphGreen, \
         DWORD PTR graphBlue
 
+
     invoke CalculateGraphStep
+
 
     fld DWORD PTR viewLeft
 
+
     fstp DWORD PTR currentX
+
 
     mov edi, GRAPH_SAMPLE_COUNT
 
+
     mov graphSegmentActive, 0
+
 
 GraphLoop:
 
     invoke EvaluateCurrentFunction
 
+
     test eax, eax
+
     jz InvalidGraphPoint
 
+
     cmp graphSegmentActive, 0
+
     jne PlotGraphPoint
+
 
     invoke glBegin, GL_LINE_STRIP
 
+
     mov graphSegmentActive, 1
+
 
 PlotGraphPoint:
 
@@ -2718,117 +4214,168 @@ PlotGraphPoint:
         DWORD PTR currentX, \
         DWORD PTR currentY
 
+
     jmp AdvanceGraph
+
 
 InvalidGraphPoint:
 
     cmp graphSegmentActive, 0
+
     je AdvanceGraph
+
 
     invoke glEnd
 
+
     mov graphSegmentActive, 0
+
 
 AdvanceGraph:
 
     fld DWORD PTR currentX
 
+
     fadd DWORD PTR graphStepX
+
 
     fstp DWORD PTR currentX
 
+
     dec edi
+
 
     jnz GraphLoop
 
+
     cmp graphSegmentActive, 0
+
     je DrawFunctionDone
+
 
     invoke glEnd
 
+
     mov graphSegmentActive, 0
+
 
 DrawFunctionDone:
 
     pop edi
 
+
     ret
+
 
 DrawFunction ENDP
 
 
 ; ============================================================
-; MOUSE -> MATHEMATICAL COORDINATE
+; MOUSE -> WORLD
 ; ============================================================
 
 UpdateMouseWorld PROC STDCALL
 
     cmp mouseActive, 0
+
     je UpdateMouseDone
+
 
     cmp clientW, 0
+
     je UpdateMouseDone
 
+
     cmp graphH, 0
+
     je UpdateMouseDone
+
 
     mov eax, mousePixelY
 
+
     cmp eax, TOP_PANEL_HEIGHT
+
     jb MouseOutsideGraph
+
 
     sub eax, TOP_PANEL_HEIGHT
 
+
     mov mouseGraphY, eax
 
+
     cmp eax, graphH
+
     ja MouseOutsideGraph
+
 
     fld DWORD PTR viewRight
 
+
     fsub DWORD PTR viewLeft
+
 
     fstp DWORD PTR mouseRangeX
 
+
     fild DWORD PTR mousePixelX
+
 
     fidiv DWORD PTR clientW
 
+
     fmul DWORD PTR mouseRangeX
+
 
     fadd DWORD PTR viewLeft
 
+
     fstp DWORD PTR mouseWorldX
 
+
     fld DWORD PTR viewTop
+
 
     fsub DWORD PTR viewBottom
 
+
     fstp DWORD PTR mouseRangeY
+
 
     fild DWORD PTR mouseGraphY
 
+
     fidiv DWORD PTR graphH
+
 
     fmul DWORD PTR mouseRangeY
 
+
     fstp DWORD PTR mouseOffsetY
+
 
     fld DWORD PTR viewTop
 
+
     fsub DWORD PTR mouseOffsetY
+
 
     fstp DWORD PTR mouseWorldY
 
+
     ret
+
 
 MouseOutsideGraph:
 
     mov mouseActive, 0
 
+
 UpdateMouseDone:
 
     ret
+
 
 UpdateMouseWorld ENDP
 
@@ -2840,36 +4387,46 @@ UpdateMouseWorld ENDP
 DrawCrosshair PROC STDCALL
 
     cmp mouseActive, 0
+
     je CrosshairDone
+
 
     invoke glColor3f, \
         DWORD PTR crossRed, \
         DWORD PTR crossGreen, \
         DWORD PTR crossBlue
 
+
     invoke glBegin, GL_LINES
+
 
     invoke glVertex2f, \
         DWORD PTR mouseWorldX, \
         DWORD PTR viewBottom
 
+
     invoke glVertex2f, \
         DWORD PTR mouseWorldX, \
         DWORD PTR viewTop
+
 
     invoke glVertex2f, \
         DWORD PTR viewLeft, \
         DWORD PTR mouseWorldY
 
+
     invoke glVertex2f, \
         DWORD PTR viewRight, \
         DWORD PTR mouseWorldY
 
+
     invoke glEnd
+
 
 CrosshairDone:
 
     ret
+
 
 DrawCrosshair ENDP
 
@@ -2881,74 +4438,113 @@ DrawCrosshair ENDP
 RenderScene PROC STDCALL
 
     cmp hGLRC, 0
+
     je RenderDone
+
 
     cmp clientW, 0
+
     je RenderDone
 
+
     cmp graphH, 0
+
     je RenderDone
+
 
     invoke glClear, GL_COLOR_BUFFER_BIT
 
+
     invoke SetupProjection
+
 
     invoke DrawGrid
 
+
     invoke DrawAxes
+
 
     invoke DrawFunction
 
+
     invoke DrawCrosshair
 
+
+    ; Draw labels last so they remain visible.
+
+    invoke DrawAxisLabels
+
+
     invoke SwapBuffers, hDC
+
 
 RenderDone:
 
     ret
 
+
 RenderScene ENDP
 
 
 ; ============================================================
-; PAN
+; PAN STEP
 ; ============================================================
 
 CalculatePanStep PROC STDCALL
 
     fld DWORD PTR viewHalfX
 
+
     fmul DWORD PTR panFraction
+
 
     fstp DWORD PTR panAmountX
 
+
     fld DWORD PTR viewHalfY
+
 
     fmul DWORD PTR panFraction
 
+
     fstp DWORD PTR panAmountY
+
 
     ret
 
+
 CalculatePanStep ENDP
 
+
+; ============================================================
+; PAN
+; ============================================================
 
 PanLeft PROC STDCALL
 
     invoke CalculatePanStep
 
+
     fld DWORD PTR centerX
+
 
     fsub DWORD PTR panAmountX
 
+
     fstp DWORD PTR centerX
 
+
     invoke UpdateViewState
+
     invoke UpdateMouseWorld
+
     invoke UpdateStatusText
+
     invoke RenderScene
 
+
     ret
+
 
 PanLeft ENDP
 
@@ -2957,18 +4553,27 @@ PanRight PROC STDCALL
 
     invoke CalculatePanStep
 
+
     fld DWORD PTR centerX
+
 
     fadd DWORD PTR panAmountX
 
+
     fstp DWORD PTR centerX
 
+
     invoke UpdateViewState
+
     invoke UpdateMouseWorld
+
     invoke UpdateStatusText
+
     invoke RenderScene
 
+
     ret
+
 
 PanRight ENDP
 
@@ -2977,18 +4582,27 @@ PanUp PROC STDCALL
 
     invoke CalculatePanStep
 
+
     fld DWORD PTR centerY
+
 
     fadd DWORD PTR panAmountY
 
+
     fstp DWORD PTR centerY
 
+
     invoke UpdateViewState
+
     invoke UpdateMouseWorld
+
     invoke UpdateStatusText
+
     invoke RenderScene
 
+
     ret
+
 
 PanUp ENDP
 
@@ -2997,18 +4611,27 @@ PanDown PROC STDCALL
 
     invoke CalculatePanStep
 
+
     fld DWORD PTR centerY
+
 
     fsub DWORD PTR panAmountY
 
+
     fstp DWORD PTR centerY
 
+
     invoke UpdateViewState
+
     invoke UpdateMouseWorld
+
     invoke UpdateStatusText
+
     invoke RenderScene
 
+
     ret
+
 
 PanDown ENDP
 
@@ -3021,39 +4644,58 @@ ZoomIn PROC STDCALL
 
     fld DWORD PTR zoomHalfRange
 
+
     fmul DWORD PTR zoomInFactor
+
 
     fstp DWORD PTR zoomCandidate
 
+
     fld DWORD PTR zoomCandidate
+
 
     fcomp DWORD PTR minHalfRange
 
+
     fnstsw ax
+
+
     sahf
+
 
     jb ZoomInClamp
 
+
     fld DWORD PTR zoomCandidate
+
 
     fstp DWORD PTR zoomHalfRange
 
+
     jmp ZoomInApply
+
 
 ZoomInClamp:
 
     fld DWORD PTR minHalfRange
 
+
     fstp DWORD PTR zoomHalfRange
+
 
 ZoomInApply:
 
     invoke UpdateViewState
+
     invoke UpdateMouseWorld
+
     invoke UpdateStatusText
+
     invoke RenderScene
 
+
     ret
+
 
 ZoomIn ENDP
 
@@ -3062,39 +4704,58 @@ ZoomOut PROC STDCALL
 
     fld DWORD PTR zoomHalfRange
 
+
     fmul DWORD PTR zoomOutFactor
+
 
     fstp DWORD PTR zoomCandidate
 
+
     fld DWORD PTR zoomCandidate
+
 
     fcomp DWORD PTR maxHalfRange
 
+
     fnstsw ax
+
+
     sahf
+
 
     ja ZoomOutClamp
 
+
     fld DWORD PTR zoomCandidate
+
 
     fstp DWORD PTR zoomHalfRange
 
+
     jmp ZoomOutApply
+
 
 ZoomOutClamp:
 
     fld DWORD PTR maxHalfRange
 
+
     fstp DWORD PTR zoomHalfRange
+
 
 ZoomOutApply:
 
     invoke UpdateViewState
+
     invoke UpdateMouseWorld
+
     invoke UpdateStatusText
+
     invoke RenderScene
 
+
     ret
+
 
 ZoomOut ENDP
 
@@ -3106,20 +4767,34 @@ ZoomOut ENDP
 ResetView PROC STDCALL
 
     fld DWORD PTR floatZero
+
+
     fstp DWORD PTR centerX
 
+
     fld DWORD PTR floatZero
+
+
     fstp DWORD PTR centerY
 
+
     fld DWORD PTR defaultHalfRange
+
+
     fstp DWORD PTR zoomHalfRange
 
+
     invoke UpdateViewState
+
     invoke UpdateMouseWorld
+
     invoke UpdateStatusText
+
     invoke RenderScene
 
+
     ret
+
 
 ResetView ENDP
 
@@ -3132,69 +4807,97 @@ HandleKeyboard PROC STDCALL keyCode:DWORD
 
     mov eax, keyCode
 
+
     cmp eax, VK_ESCAPE
     je KeyExit
+
 
     cmp eax, VK_W
     je KeyUp
 
+
     cmp eax, VK_S
     je KeyDown
+
 
     cmp eax, VK_A
     je KeyLeft
 
+
     cmp eax, VK_D
     je KeyRight
+
 
     cmp eax, VK_R
     je KeyReset
 
+
     cmp eax, VK_OEM_PLUS
     je KeyZoomIn
+
 
     cmp eax, VK_ADD
     je KeyZoomIn
 
+
     cmp eax, VK_OEM_MINUS
     je KeyZoomOut
+
 
     cmp eax, VK_SUBTRACT
     je KeyZoomOut
 
+
     ret
 
+
 KeyUp:
+
     invoke PanUp
     ret
 
+
 KeyDown:
+
     invoke PanDown
     ret
 
+
 KeyLeft:
+
     invoke PanLeft
     ret
 
+
 KeyRight:
+
     invoke PanRight
     ret
 
+
 KeyZoomIn:
+
     invoke ZoomIn
     ret
 
+
 KeyZoomOut:
+
     invoke ZoomOut
     ret
 
+
 KeyReset:
+
     invoke ResetView
     ret
 
+
 KeyExit:
+
     invoke DestroyWindow, hMainWnd
     ret
+
 
 HandleKeyboard ENDP
 
@@ -3209,45 +4912,66 @@ ExpressionEditProc PROC STDCALL \
     wParam:DWORD, \
     lParam:DWORD
 
+
     cmp uMsg, WM_KEYDOWN
+
     jne EditCheckChar
 
+
     cmp wParam, VK_RETURN
+
     je EditEnter
 
+
     cmp wParam, VK_ESCAPE
+
     je EditEscape
 
+
     jmp EditDefault
+
 
 EditCheckChar:
 
     cmp uMsg, WM_CHAR
+
     jne EditDefault
 
+
     cmp wParam, VK_RETURN
+
     je EditSwallow
 
+
     jmp EditDefault
+
 
 EditEnter:
 
     invoke ApplyExpression
 
+
     xor eax, eax
+
     ret
+
 
 EditEscape:
 
     invoke DestroyWindow, hMainWnd
 
+
     xor eax, eax
+
     ret
+
 
 EditSwallow:
 
     xor eax, eax
+
     ret
+
 
 EditDefault:
 
@@ -3258,13 +4982,15 @@ EditDefault:
         wParam, \
         lParam
 
+
     ret
+
 
 ExpressionEditProc ENDP
 
 
 ; ============================================================
-; CREATE UI
+; CREATE INTERFACE
 ; ============================================================
 
 CreateInterface PROC STDCALL parentWnd:DWORD
@@ -3286,18 +5012,25 @@ CreateInterface PROC STDCALL parentWnd:DWORD
         hInstance, \
         0
 
+
     test eax, eax
+
     jz CreateInterfaceFailed
 
+
     mov hExpressionEdit, eax
+
 
     invoke SetWindowLongA, \
         hExpressionEdit, \
         GWL_WNDPROC, \
         OFFSET ExpressionEditProc
 
+
     test eax, eax
+
     jz CreateInterfaceFailed
+
 
     mov oldEditProc, eax
 
@@ -3316,18 +5049,26 @@ CreateInterface PROC STDCALL parentWnd:DWORD
         hInstance, \
         0
 
+
     test eax, eax
+
     jz CreateInterfaceFailed
+
 
     mov hStatus, eax
 
+
     mov eax, 1
+
     ret
+
 
 CreateInterfaceFailed:
 
     xor eax, eax
+
     ret
+
 
 CreateInterface ENDP
 
@@ -3340,37 +5081,61 @@ InitializeOpenGL PROC STDCALL targetWnd:DWORD
 
     push edi
 
+
     invoke GetDC, targetWnd
 
+
     test eax, eax
+
     jz OpenGLInitFailed
+
 
     mov hDC, eax
 
 
+; ============================================================
+; ZERO PFD
+; ============================================================
+
     lea edi, pfd
+
 
     xor eax, eax
 
+
     mov ecx, SIZEOF PIXELFORMATDESCRIPTOR / 4
 
+
     cld
+
+
     rep stosd
 
 
+; ============================================================
+; PIXEL FORMAT
+; ============================================================
+
     mov pfd.nSize, SIZEOF PIXELFORMATDESCRIPTOR
+
+
     mov pfd.nVersion, 1
+
 
     mov pfd.dwFlags, \
         PFD_DRAW_TO_WINDOW OR \
         PFD_SUPPORT_OPENGL OR \
         PFD_DOUBLEBUFFER
 
+
     mov pfd.iPixelType, PFD_TYPE_RGBA
+
 
     mov pfd.cColorBits, 32
 
+
     mov pfd.cDepthBits, 24
+
 
     mov pfd.iLayerType, PFD_MAIN_PLANE
 
@@ -3379,8 +5144,11 @@ InitializeOpenGL PROC STDCALL targetWnd:DWORD
         hDC, \
         ADDR pfd
 
+
     test eax, eax
+
     jz OpenGLInitFailed
+
 
     mov pixelFormat, eax
 
@@ -3390,14 +5158,23 @@ InitializeOpenGL PROC STDCALL targetWnd:DWORD
         pixelFormat, \
         ADDR pfd
 
+
     test eax, eax
+
     jz OpenGLInitFailed
 
+
+; ============================================================
+; WGL
+; ============================================================
 
     invoke wglCreateContext, hDC
 
+
     test eax, eax
+
     jz OpenGLInitFailed
+
 
     mov hGLRC, eax
 
@@ -3406,7 +5183,9 @@ InitializeOpenGL PROC STDCALL targetWnd:DWORD
         hDC, \
         hGLRC
 
+
     test eax, eax
+
     jz OpenGLInitFailed
 
 
@@ -3417,6 +5196,22 @@ InitializeOpenGL PROC STDCALL targetWnd:DWORD
         DWORD PTR clearAlpha
 
 
+; ============================================================
+; CREATE GRAPH FONT
+; ============================================================
+
+    invoke InitializeBitmapFont
+
+
+    test eax, eax
+
+    jz OpenGLInitFailed
+
+
+; ============================================================
+; CLIENT SIZE
+; ============================================================
+
     invoke GetClientRect, \
         targetWnd, \
         ADDR clientRect
@@ -3424,79 +5219,124 @@ InitializeOpenGL PROC STDCALL targetWnd:DWORD
 
     mov eax, clientRect.right
 
+
     sub eax, clientRect.left
+
 
     mov clientW, eax
 
 
     mov eax, clientRect.bottom
 
+
     sub eax, clientRect.top
+
 
     mov clientH, eax
 
 
     sub eax, TOP_PANEL_HEIGHT
 
+
     jle InitialGraphZero
+
 
     mov graphH, eax
 
+
     jmp InitialGraphReady
+
 
 InitialGraphZero:
 
     mov graphH, 0
 
+
 InitialGraphReady:
 
     invoke UpdateViewState
+
 
     invoke SetupViewport
 
 
     pop edi
 
+
     mov eax, 1
+
     ret
+
 
 OpenGLInitFailed:
 
     pop edi
 
+
     xor eax, eax
+
     ret
+
 
 InitializeOpenGL ENDP
 
 
 ; ============================================================
-; CLEANUP
+; CLEANUP OPENGL
 ; ============================================================
 
 CleanupOpenGL PROC STDCALL targetWnd:DWORD
 
+    ; Display lists must be deleted while context exists.
+
+    cmp fontBase, 0
+
+    je SkipFontCleanup
+
+
+    invoke glDeleteLists, \
+        fontBase, \
+        FONT_CHAR_COUNT
+
+
+    mov fontBase, 0
+
+
+SkipFontCleanup:
+
     cmp hGLRC, 0
+
     je SkipContextCleanup
+
 
     invoke wglMakeCurrent, 0, 0
 
+
     invoke wglDeleteContext, hGLRC
 
+
     mov hGLRC, 0
+
 
 SkipContextCleanup:
 
     cmp hDC, 0
+
     je CleanupDone
 
-    invoke ReleaseDC, targetWnd, hDC
+
+    invoke ReleaseDC, \
+        targetWnd, \
+        hDC
+
 
     mov hDC, 0
+
 
 CleanupDone:
 
     ret
+
 
 CleanupOpenGL ENDP
 
@@ -3511,23 +5351,30 @@ WindowProc PROC STDCALL \
     wParam:DWORD, \
     lParam:DWORD
 
+
     cmp uMsg, WM_PAINT
     je WindowPaint
+
 
     cmp uMsg, WM_SIZE
     je WindowSize
 
+
     cmp uMsg, WM_KEYDOWN
     je WindowKeyDown
+
 
     cmp uMsg, WM_MOUSEMOVE
     je WindowMouseMove
 
+
     cmp uMsg, WM_LBUTTONDOWN
     je WindowMouseClick
 
+
     cmp uMsg, WM_ERASEBKGND
     je WindowBackground
+
 
     cmp uMsg, WM_DESTROY
     je WindowDestroyed
@@ -3539,133 +5386,214 @@ WindowProc PROC STDCALL \
         wParam, \
         lParam
 
+
     ret
 
+
+; ============================================================
+; PAINT
+; ============================================================
 
 WindowPaint:
 
     invoke RenderScene
 
-    invoke ValidateRect, hWnd, 0
+
+    invoke ValidateRect, \
+        hWnd, \
+        0
+
 
     xor eax, eax
+
     ret
 
+
+; ============================================================
+; RESIZE
+; ============================================================
 
 WindowSize:
 
     mov eax, lParam
 
+
     movzx ecx, ax
+
 
     mov clientW, ecx
 
 
     mov eax, lParam
 
+
     shr eax, 16
 
+
     movzx ecx, ax
+
 
     mov clientH, ecx
 
 
     mov eax, clientH
 
+
     sub eax, TOP_PANEL_HEIGHT
+
 
     jle ResizeGraphZero
 
+
     mov graphH, eax
 
+
     jmp ResizeGraphReady
+
 
 ResizeGraphZero:
 
     mov graphH, 0
 
+
 ResizeGraphReady:
 
     cmp hGLRC, 0
+
     je WindowSizeDone
 
+
     invoke UpdateViewState
+
+
     invoke SetupViewport
+
+
     invoke UpdateMouseWorld
+
+
     invoke UpdateStatusText
+
+
     invoke RenderScene
+
 
 WindowSizeDone:
 
     xor eax, eax
+
     ret
 
+
+; ============================================================
+; MOUSE
+; ============================================================
 
 WindowMouseMove:
 
     mov eax, lParam
 
+
     movzx ecx, ax
+
 
     mov mousePixelX, ecx
 
 
     mov eax, lParam
 
+
     shr eax, 16
 
+
     movzx ecx, ax
+
 
     mov mousePixelY, ecx
 
 
     mov mouseActive, 1
 
+
     invoke UpdateMouseWorld
+
+
     invoke UpdateStatusText
+
+
     invoke RenderScene
 
+
     xor eax, eax
+
     ret
 
+
+; ============================================================
+; GRAPH CLICK
+; ============================================================
 
 WindowMouseClick:
 
     mov eax, mousePixelY
 
+
     cmp eax, TOP_PANEL_HEIGHT
+
     jb WindowClickDone
 
+
     invoke SetFocus, hWnd
+
 
 WindowClickDone:
 
     xor eax, eax
+
     ret
 
+
+; ============================================================
+; KEYBOARD
+; ============================================================
 
 WindowKeyDown:
 
     invoke HandleKeyboard, wParam
 
+
     xor eax, eax
+
     ret
 
+
+; ============================================================
+; BACKGROUND
+; ============================================================
 
 WindowBackground:
 
     mov eax, 1
+
     ret
 
+
+; ============================================================
+; DESTROY
+; ============================================================
 
 WindowDestroyed:
 
     invoke CleanupOpenGL, hWnd
 
+
     invoke PostQuitMessage, 0
 
+
     xor eax, eax
+
     ret
+
 
 WindowProc ENDP
 
@@ -3680,25 +5608,49 @@ start:
 
 
     mov hDC, 0
+
     mov hGLRC, 0
+
     mov hMainWnd, 0
 
+
+    mov fontBase, 0
+
+    mov hBitmapFont, 0
+
+    mov hOldFont, 0
+
+
     mov hExpressionEdit, 0
+
     mov hStatus, 0
+
     mov oldEditProc, 0
 
+
     mov clientW, 0
+
     mov clientH, 0
+
     mov graphH, 0
 
+
     mov mouseActive, 0
+
     mov mousePixelX, 0
+
     mov mousePixelY, 0
 
 
+; ============================================================
+; COMPILE DEFAULT FUNCTION
+; ============================================================
+
     invoke CompileExpression
 
+
     test eax, eax
+
     jz InitialExpressionFailed
 
 
@@ -3708,28 +5660,47 @@ start:
         MAX_EXPRESSION_LENGTH
 
 
+; ============================================================
+; MODULE
+; ============================================================
+
     invoke GetModuleHandleA, 0
+
 
     mov hInstance, eax
 
 
+; ============================================================
+; WINDOW CLASS
+; ============================================================
+
     mov windowClass.cbSize, SIZEOF WNDCLASSEX
+
 
     mov windowClass.style, \
         CS_HREDRAW OR \
         CS_VREDRAW OR \
         CS_OWNDC
 
+
     mov windowClass.lpfnWndProc, OFFSET WindowProc
 
+
     mov windowClass.cbClsExtra, 0
+
+
     mov windowClass.cbWndExtra, 0
+
 
     mov eax, hInstance
 
+
     mov windowClass.hInstance, eax
 
+
     mov windowClass.hIcon, 0
+
+
     mov windowClass.hIconSm, 0
 
 
@@ -3737,21 +5708,35 @@ start:
         0, \
         IDC_ARROW
 
+
     mov windowClass.hCursor, eax
+
 
     mov windowClass.hbrBackground, 0
 
+
     mov windowClass.lpszMenuName, 0
+
 
     mov windowClass.lpszClassName, OFFSET className
 
 
+; ============================================================
+; REGISTER
+; ============================================================
+
     invoke RegisterClassExA, \
         ADDR windowClass
 
+
     test eax, eax
+
     jz RegistrationFailed
 
+
+; ============================================================
+; CREATE WINDOW
+; ============================================================
 
     invoke CreateWindowExA, \
         0, \
@@ -3769,37 +5754,67 @@ start:
         hInstance, \
         0
 
+
     test eax, eax
+
     jz WindowCreationFailed
+
 
     mov hMainWnd, eax
 
 
+; ============================================================
+; UI
+; ============================================================
+
     invoke CreateInterface, hMainWnd
 
+
     test eax, eax
+
     jz InterfaceCreationFailed
 
 
+; ============================================================
+; OPENGL
+; ============================================================
+
     invoke InitializeOpenGL, hMainWnd
 
+
     test eax, eax
+
     jz OpenGLCreationFailed
 
 
+; ============================================================
+; STATUS
+; ============================================================
+
     invoke UpdateStatusText
 
+
+; ============================================================
+; SHOW
+; ============================================================
 
     invoke ShowWindow, \
         hMainWnd, \
         SW_SHOWNORMAL
 
+
     invoke UpdateWindow, hMainWnd
+
 
     invoke RenderScene
 
+
     invoke SetFocus, hExpressionEdit
 
+
+; ============================================================
+; MESSAGE LOOP
+; ============================================================
 
 MessageLoop:
 
@@ -3809,24 +5824,36 @@ MessageLoop:
         0, \
         0
 
+
     cmp eax, 0
+
     je ProgramFinished
 
+
     cmp eax, -1
+
     je MessageLoopFailed
+
 
     invoke TranslateMessage, \
         ADDR messageData
 
+
     invoke DispatchMessageA, \
         ADDR messageData
+
 
     jmp MessageLoop
 
 
+; ============================================================
+; EXIT
+; ============================================================
+
 ProgramFinished:
 
     mov eax, messageData.wParam
+
 
     invoke ExitProcess, eax
 
@@ -3855,12 +5882,14 @@ OpenGLCreationFailed:
 
     invoke CleanupOpenGL, hMainWnd
 
+
     invoke ExitProcess, 3
 
 
 MessageLoopFailed:
 
     invoke CleanupOpenGL, hMainWnd
+
 
     invoke ExitProcess, 4
 
